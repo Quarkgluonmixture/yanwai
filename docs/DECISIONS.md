@@ -1,0 +1,309 @@
+# DECISIONS.md
+
+This file records important decisions, their reasons, and rejected alternatives.
+
+---
+
+## D-001 — Product is an observational conversation HUD
+
+**Decision**
+
+V0 observes WeChat conversations, makes typed probabilistic judgments, and renders them beside messages. It does not automatically reply, click, or send.
+
+**Reason**
+
+The desired product is a live decision/intelligence layer rather than an AI that takes over the conversation. This also keeps the first version narrow and testable.
+
+**Rejected alternatives**
+
+- Full auto-reply bot
+- Agent that sends messages on the user's behalf
+- Immediate LLM reply generation as the core product
+
+---
+
+## D-002 — Jev should be used as multiple narrow judgments, not one generic intent label
+
+**Decision**
+
+Represent semantics as a set of Noul / Choice / Score judgments over shared conversation state.
+
+**Reason**
+
+This matches TypeSafe's programming model: code owns workflow and System One judgments provide bounded semantic primitives. It also preserves reusable signals and probabilities.
+
+**Rejected alternatives**
+
+- One `intent = X` classifier as the entire semantic layer
+- One large free-form LLM explanation
+- Parsing unstructured prose into product state
+
+---
+
+## D-003 — UI Automation is not the V0 message-reading channel
+
+**Decision**
+
+Do not use UI Automation as the primary source of message text or message bubble geometry.
+
+**Evidence**
+
+The user's actual WeChat was inspected with Accessibility Insights. The accessible tree stopped at the outer WeChat/render shell and exposed `MMUIRenderSubWindowHW`, not per-message text/bubble nodes.
+
+Current WeChat community implementations report the same failure mode for self-drawn 4.x chat rendering.
+
+**Reason**
+
+Building message ingestion on an interface that is absent in the user's real environment would be brittle and block the project immediately.
+
+**Rejected alternatives**
+
+- Keep searching the same normal UIA tree and assume message nodes exist
+- Design the pipeline around `TextControl`/`ListItemControl` message access
+
+**Allowed residual use**
+
+Win32/UIA/accessibility tooling may still help with outer-window discovery, diagnostics, menus/dialogs, or future WeChat versions. It is simply not the message-content contract.
+
+---
+
+## D-004 — Visual-first message perception
+
+**Decision**
+
+Use:
+- Win32/window APIs for exact window/lifecycle/monitor/DPI information;
+- visual capture for the WeChat chat surface;
+- computer vision for bubble geometry/side;
+- OCR for text.
+
+**Reason**
+
+This fits the user's current WeChat rendering behavior while maintaining a non-invasive companion-app design.
+
+**Rejected alternatives**
+
+- OCR the entire desktop continuously
+- Treat screen coordinates as fixed
+- Couple the semantic layer directly to screenshot pixels
+
+---
+
+## D-005 — No process injection / binary patching / database decryption in V0
+
+**Decision**
+
+Do not:
+- inject into the WeChat process;
+- patch `Weixin.dll`;
+- write WeChat process memory;
+- hook private protocols;
+- depend on decrypted local WeChat databases.
+
+**Reason**
+
+These approaches are more invasive, version-coupled, harder to maintain, and conflict with the desired independent companion overlay.
+
+**Rejected alternatives**
+
+- Qt accessibility hot activation via process patching
+- WeChat internals/database extraction as the main ingestion path
+
+This may be revisited only after explicit user approval and only if the non-invasive path proves insufficient.
+
+---
+
+## D-006 — Overlay is separate from WeChat
+
+**Decision**
+
+Render the HUD in an independent transparent Windows overlay/companion window.
+
+**Reason**
+
+Avoid modifying WeChat, keep rendering under our control, and allow independent layout/debugging.
+
+**Rejected alternatives**
+
+- Inject custom UI into WeChat
+- Modify WeChat resources/layout
+
+---
+
+## D-007 — Anchor HUD to remote message geometry
+
+**Decision**
+
+Default HUD placement is to the right of a remote/left-side message bubble, using the bubble's detected bounding box.
+
+**Reason**
+
+The user's real dark-theme WeChat layout has a large unused area to the right of remote bubbles. This preserves WeChat's reading flow and avoids covering the original message.
+
+**Rejected alternatives**
+
+- Fixed global side panel only
+- HUD below every message, which can interfere with vertical reading flow
+- Absolute desktop coordinates
+
+---
+
+## D-008 — Multi-monitor and DPI are architectural requirements
+
+**Decision**
+
+Track the WeChat window rather than assuming a fixed screen/location. Implement explicit physical-pixel/DIP transformations and Per-Monitor DPI Awareness V2.
+
+**Reason**
+
+The user has a laptop display plus an external monitor and commonly positions WeChat on the right side of the laptop screen. They may move it later.
+
+**Rejected alternatives**
+
+- Assume a single display
+- Assume screen origin `(0,0)` is always the relevant monitor
+- Hard-code the current laptop placement
+
+---
+
+## D-009 — Detect change before expensive OCR/inference
+
+**Decision**
+
+Steady state should use lightweight frame/ROI change detection and only OCR/infer new or changed candidate messages.
+
+**Reason**
+
+Continuous full-window OCR wastes resources and increases latency/cost without adding value.
+
+**Rejected alternatives**
+
+- OCR the entire WeChat window many times per second
+- Call Jev for every visible message on every frame
+
+---
+
+## D-010 — Privacy-minimizing state
+
+**Decision**
+
+Keep recent conversation state in memory and send Jev only the context needed for current judgments. No raw chat persistence by default.
+
+**Reason**
+
+Conversation content is private, and the product does not require permanent storage for V0.
+
+**Rejected alternatives**
+
+- Persist every screenshot
+- Upload entire chat history by default
+- Verbose raw-text logs as normal diagnostics
+
+---
+
+## D-011 — TypeSafe skill and live docs govern Jev integration
+
+**Decision**
+
+Codex must install/use the official TypeSafe skill and re-read current live docs before implementing Jev API code.
+
+**Reason**
+
+The official skill explicitly states the live docs are the source of truth for current concepts, API contracts, SDKs, limits, and cookbooks.
+
+**Current handoff limitation**
+
+During handoff creation, the official skill file was successfully read from TypeSafe's GitHub repository, but the live `docs.typesafe.ai` Markdown pages were not accessible from this chat tool. Therefore this handoff deliberately does not freeze a request/response schema that may be version-dependent.
+
+**Rejected alternatives**
+
+- Guess current Jev endpoints/fields from memory
+- Copy an old integration without checking migration/current docs
+
+---
+
+## D-012 — Initial stack is Windows native .NET/WPF, but perception components remain replaceable
+
+**Decision**
+
+Default implementation stack:
+- .NET 8
+- WPF host/overlay
+- Win32 interop
+- modular capture/detection/OCR/Jev interfaces
+
+**Reason**
+
+The hard parts are Windows window tracking, DPI, overlay anchoring, and capture, for which a native Windows stack is a good fit.
+
+**Status**
+
+This is a strong default rather than an irreversible product requirement. A temporary Python/OpenCV feasibility harness is allowed if it materially accelerates a spike, but production modules should remain cleanly replaceable.
+
+**Rejected alternatives**
+
+- Electron-first architecture where native window/perception problems become secondary wrappers
+- Locking V0 to one OCR engine before real accuracy tests
+
+---
+
+## D-013 — Stepwise implementation
+
+**Decision**
+
+Codex implements one acceptance phase at a time and produces evidence before moving forward.
+
+**Reason**
+
+The project contains multiple uncertain interfaces (WeChat capture, bubble detection, OCR accuracy, Jev latency, overlay anchoring). A monolithic build would make failures hard to isolate.
+
+**Rejected alternatives**
+
+- "Build the whole app" in one pass
+- Hide failing perception behind increasingly complicated semantic/UI layers
+
+---
+
+## D-014 — HWND title is diagnostic metadata, not conversation identity
+
+**Decision**
+
+Do not use the WeChat top-level window title as the current conversation identity.
+It may be reported for window diagnostics, but later conversation-switch detection
+must use evidence from the captured WeChat surface or another separately validated
+signal.
+
+**Evidence**
+
+Phase 1 testing on the user's real WeChat showed that the top-level HWND title does
+not reliably equal the visibly selected chat name.
+
+**Reason**
+
+Treating the title as authoritative would mix message state between conversations
+when the metadata is stale or unrelated to the visible chat.
+
+**Rejected alternative**
+
+- Use `GetWindowText(HWND)` as the conversation key.
+
+---
+
+## D-015 — Detection scores are not confidence probabilities
+
+**Decision**
+
+Name the Phase 2 heuristic output `DetectionScore` in code and
+`detection_score` in diagnostics. Do not label it as confidence or probability.
+Keep it distinct from `OcrConfidence` and Jev `Probability`/confidence values.
+
+**Reason**
+
+The current value combines shape and alignment heuristics. It is useful for
+ranking and thresholding but has not been calibrated against an empirical
+probability distribution.
+
+**Rejected alternative**
+
+- Present the heuristic value as generic `Confidence`, which could incorrectly
+  imply that `0.94` means a calibrated 94% likelihood.
