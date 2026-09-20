@@ -55,7 +55,7 @@ Manual verification evidence:
 
 ## Phase 2 — Chat ROI and bubble detection
 
-**Status: IMPLEMENTED — 1277×1526 captures manually accepted; awaiting cross-scale visual acceptance before PASS.**
+**Status: PASS — automated and manual acceptance complete.**
 
 ### Goal
 
@@ -104,7 +104,7 @@ Visual comparison evidence (false-positive/false-negative counts are human judgm
 | `wechat-20260921-031243.png` | compact 100% | 4 | 4 | 0 | 0 |
 | `wechat-20260921-033329.png` | current live 150% | 10 | 10 | 0 | 0 |
 
-Cross-scale implementation evidence awaiting user visual confirmation:
+Cross-scale implementation evidence:
 
 | Capture | Frame | DPI/layout | Detected | Debug artifact |
 | --- | --- | --- | ---: | --- |
@@ -119,9 +119,17 @@ The matching `*-bubbles.png` files in the ignored `debug-captures/` directory
 are the local visual artifacts. They are intentionally not committed because
 real chat captures are private.
 
-Human exit gate: inspect both cross-scale annotated captures and confirm the
-boxes match visible text bubbles before changing this phase to `PASS` or starting
-Phase 3.
+Final manual acceptance evidence (2026-09-21):
+- the user accepted the latest 989×680, 100% DPI external-monitor result and the
+  662×680 narrow-window result;
+- `Remote`/`Self` boxes remained correct at 100% and 150% DPI and after resizing;
+- timestamps, avatars, conversation list, composer, and quoted reply text remained
+  excluded from independent bubble detections;
+- the user accepted `detection_score` as the correct name for the uncalibrated
+  heuristic score.
+
+The Phase 2 human exit gate is satisfied. Phase 3 remains out of scope for this
+branch.
 
 ---
 
