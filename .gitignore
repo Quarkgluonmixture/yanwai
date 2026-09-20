@@ -1,0 +1,30 @@
+# .NET / IDE output
+**/bin/
+**/obj/
+.vs/
+.idea/
+*.user
+*.suo
+TestResults/
+artifacts/
+
+# Local SDK/tool caches
+.tools/
+.dotnet-windows/
+
+# Secrets (keep examples only)
+.env
+.env.*
+!.env.example
+secrets.json
+**/secrets.json
+
+# Explicit, user-requested debug data
+debug-captures/
+**/debug-captures/
+.ocr-cache/
+**/.ocr-cache/
+
+# OS noise
+Thumbs.db
+.DS_Store
