@@ -14,9 +14,28 @@ public sealed class DarkThemeBubbleDetectorTests
 
         var bubbles = new DarkThemeBubbleDetector().Detect(frame, chatRegion);
 
-        Assert.Equal(5, bubbles.Count(bubble => bubble.Side == MessageSide.Remote));
-        Assert.Equal(6, bubbles.Count(bubble => bubble.Side == MessageSide.Self));
-        Assert.DoesNotContain(bubbles, bubble => bubble.Side == MessageSide.Unknown);
+        (MessageSide Side, CapturePixelRect Bounds)[] expected =
+        [
+            (MessageSide.Self, new CapturePixelRect(1067, 120, 106, 39)),
+            (MessageSide.Self, new CapturePixelRect(1004, 189, 169, 54)),
+            (MessageSide.Self, new CapturePixelRect(836, 273, 337, 54)),
+            (MessageSide.Remote, new CapturePixelRect(478, 357, 154, 54)),
+            (MessageSide.Self, new CapturePixelRect(702, 503, 471, 54)),
+            (MessageSide.Self, new CapturePixelRect(920, 648, 253, 54)),
+            (MessageSide.Self, new CapturePixelRect(618, 794, 555, 54)),
+            (MessageSide.Remote, new CapturePixelRect(478, 939, 127, 54)),
+            (MessageSide.Remote, new CapturePixelRect(478, 1085, 169, 54)),
+            (MessageSide.Remote, new CapturePixelRect(478, 1169, 127, 54)),
+            (MessageSide.Remote, new CapturePixelRect(478, 1314, 244, 54)),
+        ];
+
+        Assert.Equal(expected.Length, bubbles.Count);
+        for (var index = 0; index < expected.Length; index++)
+        {
+            Assert.Equal(expected[index].Side, bubbles[index].Side);
+            Assert.Equal(expected[index].Bounds, bubbles[index].Bounds);
+        }
+
         Assert.All(bubbles, bubble =>
         {
             Assert.InRange(bubble.Confidence, 0.75, 1);

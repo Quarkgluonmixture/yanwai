@@ -89,6 +89,20 @@ Implementation evidence:
 - current image and sticker messages were ignored;
 - debug output includes ROI, labeled boxes, confidence, capture-relative coordinates, and `bubble_detect_ms`.
 
+Visual comparison evidence (false-positive/false-negative counts are human judgments):
+
+| Capture | DPI/layout | Visible text bubbles | Detected | False positives | False negatives |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `docs/assets/wechat-dark-layout-reference.png` | 150% reference | 11 | 11 | 0 | 0 |
+| `wechat-20260921-031220.png` | 100% | 4 | 4 | 0 | 0 |
+| `wechat-20260921-030720.png` | 150% | 10 | 10 | 0 | 0 |
+| `wechat-20260921-031243.png` | compact 100% | 4 | 4 | 0 | 0 |
+| `wechat-20260921-033329.png` | current live 150% | 10 | 10 | 0 | 0 |
+
+The matching `*-bubbles.png` files in the ignored `debug-captures/` directory
+are the local visual artifacts. They are intentionally not committed because
+real chat captures are private.
+
 Human exit gate: inspect at least one annotated current capture and confirm the
 boxes match visible text bubbles before changing this phase to `PASS` or starting
 Phase 3.
