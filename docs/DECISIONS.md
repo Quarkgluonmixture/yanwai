@@ -261,3 +261,28 @@ The project contains multiple uncertain interfaces (WeChat capture, bubble detec
 
 - "Build the whole app" in one pass
 - Hide failing perception behind increasingly complicated semantic/UI layers
+
+---
+
+## D-014 — HWND title is diagnostic metadata, not conversation identity
+
+**Decision**
+
+Do not use the WeChat top-level window title as the current conversation identity.
+It may be reported for window diagnostics, but later conversation-switch detection
+must use evidence from the captured WeChat surface or another separately validated
+signal.
+
+**Evidence**
+
+Phase 1 testing on the user's real WeChat showed that the top-level HWND title does
+not reliably equal the visibly selected chat name.
+
+**Reason**
+
+Treating the title as authoritative would mix message state between conversations
+when the metadata is stale or unrelated to the visible chat.
+
+**Rejected alternative**
+
+- Use `GetWindowText(HWND)` as the conversation key.

@@ -7,5 +7,6 @@
   <ItemGroup>
     <ProjectReference Include="..\WeChatJevHud.Windows\WeChatJevHud.Windows.csproj" />
     <ProjectReference Include="..\WeChatJevHud.Capture\WeChatJevHud.Capture.csproj" />
+    <ProjectReference Include="..\WeChatJevHud.Vision\WeChatJevHud.Vision.csproj" />
   </ItemGroup>
 </Project>

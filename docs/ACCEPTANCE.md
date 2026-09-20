@@ -24,28 +24,38 @@ Do not implement later phases merely to make Phase 0 look complete.
 
 ## Phase 1 — WeChat window tracking and frame capture
 
+**Status: PASS — manually verified on the real dual-monitor Windows machine.**
+
 ### Goal
 
 Reliably identify the user's visible WeChat and capture its current surface/region.
 
 ### Acceptance
 
-- [ ] Finds the correct WeChat top-level window without requiring a fixed desktop coordinate.
-- [ ] Reports HWND/process/title/class/bounds/monitor/DPI in debug output.
-- [ ] Produces a visible captured frame of the current WeChat window/render area.
-- [ ] Moving WeChat within the same monitor updates bounds.
-- [ ] Moving WeChat to the other monitor updates monitor/DPI/bounds correctly.
-- [ ] Minimize/restore does not crash; capture suspends/resumes.
-- [ ] Coordinates support negative virtual-screen positions.
-- [ ] No injection, patching, local DB decryption, or private protocol use.
+- [x] Finds the correct WeChat top-level window without requiring a fixed desktop coordinate.
+- [x] Reports HWND/process/title/class/bounds/monitor/DPI in debug output.
+- [x] Produces a visible captured frame of the current WeChat window/render area.
+- [x] Moving WeChat within the same monitor updates bounds.
+- [x] Moving WeChat to the other monitor updates monitor/DPI/bounds correctly.
+- [x] Minimize/restore does not crash; capture suspends/resumes.
+- [x] Coordinates support negative virtual-screen positions.
+- [x] No injection, patching, local DB decryption, or private protocol use.
 
 ### Human verification
 
 Provide one command/button that saves a single explicitly requested debug frame. The user should be able to visually verify it matches WeChat.
 
+Manual verification evidence:
+- laptop `DISPLAY1`: 2560×1600 at 150% DPI;
+- external `DISPLAY5`: 1920×1080 at 100% DPI;
+- capture remained correct across monitor/DPI changes;
+- minimize suspended capture, restore resumed it, and no crash occurred.
+
 ---
 
 ## Phase 2 — Chat ROI and bubble detection
+
+**Status: IMPLEMENTED — awaiting human visual acceptance of the debug frames before PASS.**
 
 ### Goal
 
@@ -55,15 +65,15 @@ Detect visible text-message bubble geometry and classify left/right side.
 
 Using the user's dark-theme WeChat layout and fixture screenshot:
 
-- [ ] Debug output draws the chat ROI.
-- [ ] Remote text bubbles receive `Remote`.
-- [ ] Self text bubbles receive `Self`.
-- [ ] Centered time labels are not classified as message bubbles.
-- [ ] Obvious avatar images are not classified as bubbles.
-- [ ] Detection returns capture-relative bounding boxes.
-- [ ] Window move does not change capture-relative message geometry.
-- [ ] No absolute global screen pixel constants are required.
-- [ ] Detector exposes confidence or an equivalent uncertainty indicator.
+- [x] Debug output draws the chat ROI.
+- [x] Remote text bubbles receive `Remote`.
+- [x] Self text bubbles receive `Self`.
+- [x] Centered time labels are not classified as message bubbles.
+- [x] Obvious avatar images are not classified as bubbles.
+- [x] Detection returns capture-relative bounding boxes.
+- [x] Window move does not change capture-relative message geometry.
+- [x] No absolute global screen pixel constants are required.
+- [x] Detector exposes confidence or an equivalent uncertainty indicator.
 
 ### Fixture target
 
@@ -72,6 +82,16 @@ Use `docs/assets/wechat-dark-layout-reference.png` as one regression fixture.
 ### Exit condition
 
 Do not add OCR until the debug overlay/frame makes bubble detection visually credible.
+
+Implementation evidence:
+- reference fixture: 5 `Remote`, 6 `Self`, 0 `Unknown`, with no timestamp/avatar detections;
+- real 150% and 100% captures: text bubbles remained detected after the DPI/monitor change;
+- current image and sticker messages were ignored;
+- debug output includes ROI, labeled boxes, confidence, capture-relative coordinates, and `bubble_detect_ms`.
+
+Human exit gate: inspect at least one annotated current capture and confirm the
+boxes match visible text bubbles before changing this phase to `PASS` or starting
+Phase 3.
 
 ---
 

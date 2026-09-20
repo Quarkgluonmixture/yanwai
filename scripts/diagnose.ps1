@@ -1,6 +1,9 @@
 [CmdletBinding()]
 param(
-    [switch]$Capture
+    [switch]$Capture,
+    [switch]$CaptureDetect,
+    [string]$Detect,
+    [string]$Output
 )
 
 $ErrorActionPreference = 'Stop'
@@ -12,6 +15,9 @@ Push-Location $repositoryRoot
 try {
     $arguments = @('run', '--project', 'src\WeChatJevHud.Diagnostics\WeChatJevHud.Diagnostics.csproj', '--')
     if ($Capture) { $arguments += '--capture' }
+    if ($CaptureDetect) { $arguments += '--capture-detect' }
+    if ($Detect) { $arguments += @('--detect', $Detect) }
+    if ($Output) { $arguments += @('--output', $Output) }
     & $dotnet @arguments
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }

@@ -241,6 +241,21 @@ Production rule:
 
 A temporary debug UI for adjusting the chat ROI is acceptable and may be useful.
 
+Phase 2 uses a replaceable chat-region seam:
+
+```csharp
+public interface IChatRegionLocator
+{
+    DetectedChatRegion Locate(CapturedFrame frame);
+}
+```
+
+The initial dark-theme adapter locates the conversation-list/chat divider, header
+bottom, and composer top from long structural edges. Compact layouts without a
+conversation list use the header geometry as a relative fallback. The returned
+rectangle is always capture-relative; display resolution and desktop position are
+not inputs.
+
 ---
 
 ## 8. Bubble detection
@@ -272,6 +287,12 @@ Initial visual scope:
 - quoted replies have nested/secondary text regions.
 
 Do not require a deep-learning detector for the first spike. Classical CV/connected components/edges/color/layout heuristics are acceptable if they meet the acceptance criteria.
+
+The initial dark-theme detector uses connected bubble-color regions, rectangular
+fill/shape, text-contrast evidence, and left/right anchoring. This deliberately
+ignores unbacked timestamp text and obvious image/sticker regions. It may return
+`Unknown` when a bubble-like text region is not convincingly anchored to either
+side. Detection remains behind `IBubbleDetector`; no OCR participates in Phase 2.
 
 ### Debug mode
 
