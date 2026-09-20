@@ -26,10 +26,43 @@ public sealed class OcrEvaluator
                 result.Text,
                 result.OcrConfidence,
                 timer.Elapsed,
-                result.Status));
+                result.Status,
+                string.Equals(fixture.Expected, result.Text, StringComparison.Ordinal),
+                CharacterErrorRate(fixture.Expected, result.Text)));
         }
 
         return rows;
+    }
+
+    private static double CharacterErrorRate(string expected, string recognized)
+    {
+        if (expected.Length == 0)
+        {
+            return recognized.Length == 0 ? 0 : 1;
+        }
+
+        var previous = new int[recognized.Length + 1];
+        var current = new int[recognized.Length + 1];
+        for (var column = 0; column <= recognized.Length; column++)
+        {
+            previous[column] = column;
+        }
+
+        for (var row = 1; row <= expected.Length; row++)
+        {
+            current[0] = row;
+            for (var column = 1; column <= recognized.Length; column++)
+            {
+                var substitutionCost = expected[row - 1] == recognized[column - 1] ? 0 : 1;
+                current[column] = Math.Min(
+                    Math.Min(current[column - 1] + 1, previous[column] + 1),
+                    previous[column - 1] + substitutionCost);
+            }
+
+            (previous, current) = (current, previous);
+        }
+
+        return previous[recognized.Length] / (double)expected.Length;
     }
 }
 
@@ -42,4 +75,6 @@ public sealed record OcrEvaluationRow(
     string Recognized,
     double? OcrConfidence,
     TimeSpan Elapsed,
-    OcrTextStatus Status);
+    OcrTextStatus Status,
+    bool ExactMatch,
+    double CharacterErrorRate);

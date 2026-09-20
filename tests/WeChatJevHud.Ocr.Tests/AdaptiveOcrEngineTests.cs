@@ -6,27 +6,27 @@ namespace WeChatJevHud.Ocr.Tests;
 public sealed class AdaptiveOcrEngineTests
 {
     [Fact]
-    public async Task RecognizeAsync_returns_the_highest_confidence_candidate_above_threshold()
+    public async Task RecognizeAsync_accepts_the_highest_confidence_candidate_at_threshold()
     {
         var lower = new StubOcrEngine("lower", new OcrResult("候选一", 0.78, OcrTextStatus.Recognized));
-        var higher = new StubOcrEngine("higher", new OcrResult("候选二", 0.91, OcrTextStatus.Recognized));
+        var higher = new StubOcrEngine("higher", new OcrResult("候选二", 0.90, OcrTextStatus.Recognized));
         var fallback = new StubOcrEngine("fallback", new OcrResult("回退", null, OcrTextStatus.Recognized));
-        var engine = new AdaptiveOcrEngine([lower, higher], fallback, confidenceThreshold: 0.75);
+        var engine = new AdaptiveOcrEngine([lower, higher], fallback, confidenceThreshold: 0.90);
 
         var result = await engine.RecognizeAsync(Crop(), CancellationToken.None);
 
         Assert.Equal("候选二", result.Text);
-        Assert.Equal(0.91, result.OcrConfidence);
+        Assert.Equal(0.90, result.OcrConfidence);
         Assert.Equal(0, fallback.CallCount);
     }
 
     [Fact]
-    public async Task RecognizeAsync_uses_fallback_when_all_scored_candidates_are_low_confidence()
+    public async Task RecognizeAsync_uses_uncertain_fallback_for_a_candidate_below_the_safe_threshold()
     {
         var first = new StubOcrEngine("first", new OcrResult("错一", 0.20, OcrTextStatus.LowConfidence));
-        var second = new StubOcrEngine("second", new OcrResult("错二", 0.60, OcrTextStatus.LowConfidence));
+        var second = new StubOcrEngine("second", new OcrResult("错二", 0.87, OcrTextStatus.Recognized));
         var fallback = new StubOcrEngine("fallback", new OcrResult("短文本", null, OcrTextStatus.Recognized));
-        var engine = new AdaptiveOcrEngine([first, second], fallback, confidenceThreshold: 0.75);
+        var engine = new AdaptiveOcrEngine([first, second], fallback, confidenceThreshold: 0.90);
 
         var result = await engine.RecognizeAsync(Crop(), CancellationToken.None);
 

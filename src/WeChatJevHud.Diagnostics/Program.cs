@@ -177,17 +177,21 @@ static async Task<int> EvaluateOcrAsync(
             new ImageCrop(frame, new CapturePixelRect(item.X, item.Y, item.Width, item.Height))));
     }
 
+    const double trustedTesseractThreshold = 0.90;
     var evaluator = new OcrEvaluator();
-    using var tesseractRaw = new TesseractOcrEngine(Path.GetFullPath(tessdataPath));
+    using var tesseractRaw = new TesseractOcrEngine(
+        Path.GetFullPath(tessdataPath),
+        lowConfidenceThreshold: trustedTesseractThreshold);
     using var tesseractUpscaled = new TesseractOcrEngine(
         Path.GetFullPath(tessdataPath),
+        lowConfidenceThreshold: trustedTesseractThreshold,
         preparation: OcrImagePreparation.Upscaled);
     var windowsRaw = new WindowsMediaOcrEngine("zh-Hans-CN");
     var windowsUpscaled = new WindowsMediaOcrEngine("zh-Hans-CN", OcrImagePreparation.Upscaled);
     var adaptive = new AdaptiveOcrEngine(
         [tesseractRaw, tesseractUpscaled],
         windowsUpscaled,
-        confidenceThreshold: 0.75);
+        confidenceThreshold: trustedTesseractThreshold);
     IOcrEngine[] engines =
     [
         windowsRaw,
@@ -201,25 +205,14 @@ static async Task<int> EvaluateOcrAsync(
     foreach (var engine in engines)
     {
         WriteLine($"## engine: {engine.Name}");
-        WriteLine("| fixture | expected | recognized | ocr_confidence | elapsed_ms |");
-        WriteLine("| --- | --- | --- | ---: | ---: |");
+        WriteLine("| fixture | expected | recognized | status | ocr_confidence | exact_match | normalized_cer | elapsed_ms |");
+        WriteLine("| --- | --- | --- | --- | ---: | --- | ---: | ---: |");
         var rows = await evaluator.EvaluateAsync(engine, fixtures, CancellationToken.None);
         foreach (var row in rows)
         {
             var confidence = row.OcrConfidence is { } value ? value.ToString("F3") : "n/a";
             WriteLine(
-                $"| {TableCell(row.Fixture)} | {TableCell(row.Expected)} | {TableCell(row.Recognized)} | {confidence} | {row.Elapsed.TotalMilliseconds:F1} |");
-        }
-
-        var statusNotes = rows.Where(row => row.Status != OcrTextStatus.Recognized).ToArray();
-        if (statusNotes.Length > 0)
-        {
-            WriteLine();
-            WriteLine("Status notes:");
-            foreach (var row in statusNotes)
-            {
-                WriteLine($"- {TableCell(row.Fixture)}: {row.Status}");
-            }
+                $"| {TableCell(row.Fixture)} | {TableCell(row.Expected)} | {TableCell(row.Recognized)} | {row.Status} | {confidence} | {row.ExactMatch.ToString().ToLowerInvariant()} | {row.CharacterErrorRate:F3} | {row.Elapsed.TotalMilliseconds:F1} |");
         }
 
         WriteLine();

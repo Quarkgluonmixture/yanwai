@@ -7,6 +7,8 @@
 *.suo
 TestResults/
 artifacts/
+__pycache__/
+*.py[cod]
 
 # Local SDK/tool caches
 .tools/

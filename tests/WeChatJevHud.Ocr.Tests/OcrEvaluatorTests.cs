@@ -27,6 +27,27 @@ public sealed class OcrEvaluatorTests
         Assert.Equal(0.82, row.OcrConfidence);
         Assert.True(row.Elapsed >= TimeSpan.Zero);
         Assert.Equal(crop, engine.LastCrop);
+        Assert.True(row.ExactMatch);
+        Assert.Equal(0, row.CharacterErrorRate);
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_reports_exact_match_and_normalized_character_error_rate()
+    {
+        var frame = SolidFrame(80, 50);
+        var crop = new ImageCrop(frame, new CapturePixelRect(10, 12, 30, 20));
+        var engine = new RecordingOcrEngine(
+            new OcrResult("怎久说", null, OcrTextStatus.LowConfidence));
+
+        var rows = await new OcrEvaluator().EvaluateAsync(
+            engine,
+            [new OcrEvaluationFixture("short", "怎么说", crop)],
+            CancellationToken.None);
+
+        var row = Assert.Single(rows);
+        Assert.False(row.ExactMatch);
+        Assert.Equal(1d / 3d, row.CharacterErrorRate, precision: 10);
+        Assert.Equal(OcrTextStatus.LowConfidence, row.Status);
     }
 
     private static CapturedFrame SolidFrame(int width, int height)

@@ -316,7 +316,7 @@ probability distribution.
 
 Keep Windows Media OCR and Tesseract behind `IOcrEngine`. For the Phase 3 candidate,
 run confidence-bearing Tesseract raw/upscaled variants and accept the strongest result
-only above `0.75`; otherwise fall back to upscaled Windows Media OCR. Preserve
+only at or above `0.90`; otherwise fall back to upscaled Windows Media OCR. Preserve
 `OcrConfidence` as nullable and separate from `DetectionScore`. Because the fallback
 has no confidence signal, surface its non-empty text as `LowConfidence` for downstream
 human review rather than silently treating it as trusted.
@@ -328,6 +328,21 @@ on short Chinese, while Tesseract `chi_sim+eng` was better on the representative
 wrapped, Chinese/English, and quoted-region crops. High-contrast preprocessing damaged
 small strokes and was rejected. Windows Media OCR does not expose a confidence value;
 inventing one would be misleading.
+
+The initial `0.75` adaptive threshold was superseded after the short-Chinese stress
+set produced incorrect but higher-scoring results at `0.77` and `0.87`. Raising the
+candidate threshold to `0.90` turns those cases into explicit low-confidence fallback
+outcomes instead of trusted recognized text. This remains an empirical safety policy,
+not probability calibration.
+
+An isolated recognition-only PaddleOCR benchmark was added before final Phase 3
+acceptance. On the same private crop corpus, both PP-OCRv6 small and medium materially
+improved short-Chinese exact match, but both also assigned `rec_score >= 0.90` to four
+wrong results and truncated multiline crops. `rec_score` is therefore recorded as an
+engine-specific, uncalibrated diagnostic—not as `OcrConfidence`, `DetectionScore`, or
+a probability. The small model is the preferred candidate for a later replaceable
+adapter because medium did not improve accuracy, but this experiment does not change
+the current production selection policy.
 
 **Status**
 
@@ -341,3 +356,5 @@ lock-in. The adapters and selection policy can be replaced independently.
 - Relabel Tesseract mean confidence as detection confidence or a calibrated accuracy
   probability.
 - Manufacture a confidence value for Windows Media OCR.
+- Use Paddle text detection after Phase 2 has already supplied reliable crop geometry.
+- Treat Paddle `rec_score` as calibrated or directly comparable across engines.

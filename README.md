@@ -59,9 +59,39 @@ committed real WeChat fixture:
   -OcrOutput .\.ocr-cache\phase3-public-evaluation.md
 ```
 
-The report has `fixture | expected | recognized | ocr_confidence | elapsed_ms` tables
-for each candidate. Matching crop PNGs are saved beside it for visual inspection.
+The report has `fixture | expected | recognized | status | ocr_confidence |
+exact_match | normalized_cer | elapsed_ms` tables for each candidate. Matching crop
+PNGs are saved beside it for visual inspection.
 `.ocr-cache` is gitignored because local evaluations may include private chat text.
+
+### Experimental PaddleOCR recognition benchmark
+
+`scripts/paddle_ocr_benchmark.py` is an isolated Phase 3 evaluation tool. It calls
+PaddleOCR's `TextRecognition` API only; it does not run Paddle text detection and it
+does not alter the .NET `IOcrEngine` selection policy.
+
+Create a gitignored virtual environment, install the PaddlePaddle backend selected
+for the machine by the [official installation guide](https://www.paddlepaddle.org.cn/documentation/docs/en/install/index_en.html),
+then install the experiment dependency and run the private manifest:
+
+```bash
+python3 -m venv .ocr-cache/paddle-venv
+# Use the official selector to install paddlepaddle-gpu==3.3.0 for the local CUDA
+# runtime (or the matching paddlepaddle==3.3.0 CPU wheel) first.
+.ocr-cache/paddle-venv/bin/pip install paddleocr==3.7.0
+.ocr-cache/paddle-venv/bin/python scripts/paddle_ocr_benchmark.py \
+  --manifest .ocr-cache/phase3-paddle-benchmark.json \
+  --output .ocr-cache/phase3-paddle-results.md \
+  --device gpu:0
+```
+
+The benchmark defaults to `PP-OCRv6_small_rec` and `PP-OCRv6_medium_rec`, saves
+the exact input crops plus Markdown/JSON results under `.ocr-cache`, and reports
+Paddle `rec_score` verbatim. `rec_score` is not treated as a calibrated probability
+or as directly comparable with `DetectionScore`, Tesseract confidence, or future
+Jev probability. See the current
+[PaddleOCR Text Recognition documentation](https://www.paddleocr.ai/main/en/version3.x/module_usage/text_recognition.html)
+for the upstream API.
 
 From WSL, invoke the same Windows scripts through interop, for example:
 
