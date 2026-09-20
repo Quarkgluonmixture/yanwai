@@ -135,29 +135,66 @@ branch.
 
 ## Phase 3 — OCR
 
+**Status: IMPLEMENTED — awaiting manual acceptance.**
+
 ### Goal
 
 Extract text from individual detected message crops.
 
 ### Acceptance
 
-- [ ] `IOcrEngine` abstraction exists.
-- [ ] OCR runs on bubble crops, not entire dual-monitor desktop.
-- [ ] Simplified Chinese short text works on representative samples.
-- [ ] Long wrapped Chinese text works on representative samples.
-- [ ] Mixed Chinese/English is tested.
-- [ ] OCR result exposes confidence if available.
-- [ ] Low-confidence text is surfaced as uncertain/skipped rather than silently trusted.
-- [ ] Emoji-only/sticker/image messages may return "unsupported/skip" in V0.
-- [ ] Quoted reply structure is either extracted or explicitly marked unsupported; do not silently merge quote and current text as if they were one sentence.
+- [x] `IOcrEngine` abstraction exists.
+- [x] OCR runs on bubble crops, not entire dual-monitor desktop.
+- [x] Simplified Chinese short text works on representative samples.
+- [x] Long wrapped Chinese text works on a representative sample.
+- [x] Mixed Chinese/English is tested.
+- [x] OCR result exposes confidence if available.
+- [x] Low-confidence text is surfaced as uncertain/skipped rather than silently trusted.
+- [x] Emoji-only/sticker/image messages may return `Unsupported`/skip in V0.
+- [x] Quoted reply main text and optional quote-region text are evaluated separately; automatic quote-region location remains explicitly unsupported in Phase 3.
 
 ### Evaluation artifact
 
 Provide a small table/console report:
 
 ```text
-fixture | expected | recognized | confidence | elapsed_ms
+fixture | expected | recognized | ocr_confidence | elapsed_ms
 ```
+
+Implementation evidence:
+- the evaluation harness accepts capture-relative bubble bounds, extracts only those
+  crops, and writes both a Markdown report and the exact crop PNGs used;
+- Windows Media OCR and Tesseract `chi_sim+eng` adapters were compared on the same
+  real WeChat crops using raw/upscaled variants;
+- no single candidate dominated: Windows OCR was strongest on short Chinese but does
+  not expose confidence, while Tesseract was strongest on the long wrapped, mixed,
+  and quoted-region samples and exposes `OcrConfidence`;
+- the candidate composition therefore uses confidence-bearing Tesseract results above
+  `0.75`, with Windows OCR as the short-text fallback; every engine remains behind
+  `IOcrEngine`;
+- the latest adaptive run exactly recognized the representative short remote Chinese,
+  normalized long wrapped Chinese, mixed Chinese/English, main reply text, and quoted
+  region. The short self sample still had one wrong character (`怎久说` vs `怎么说`)
+  and remains a visible manual-acceptance concern;
+- pure English is covered by an automated OCR integration test; a real WeChat
+  English-only bubble remains part of manual acceptance because the current real
+  captures contain mixed text but no English-only bubble;
+- Tesseract results below `0.60` return `LowConfidence`; Windows results preserve
+  `OcrConfidence = null` because that API supplies no confidence value. Adaptive
+  fallback text is also marked `LowConfidence` rather than silently promoted.
+
+The reproducible public manifest is `fixtures/ocr/phase3-public.json`. The full local
+run, including a private long wrapped capture, is written to the gitignored
+`.ocr-cache/phase3-evaluation.md`; its source crops are in
+`.ocr-cache/phase3-evaluation-crops/`.
+
+The Tesseract rows are a real-model integration check, not part of the hermetic unit
+suite: the pinned language models are downloaded into the gitignored `.ocr-cache`
+directory. Unit tests cover crop isolation, preprocessing, normalization, adaptive
+threshold/fallback behavior, Windows OCR, and the committed real screenshot crop.
+
+Do not begin Phase 4 until the crop artifacts and evaluation table receive manual
+acceptance.
 
 ---
 

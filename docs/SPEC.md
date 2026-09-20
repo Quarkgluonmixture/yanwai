@@ -117,7 +117,7 @@ public sealed record ChatMessage(
     string? QuotedText,
     PixelRect? QuotedRegion,
     DateTimeOffset ObservedAt,
-    double OcrConfidence,
+    double? OcrConfidence,
     bool IsVisible
 );
 
@@ -346,6 +346,7 @@ Define a replaceable interface:
 ```csharp
 public interface IOcrEngine
 {
+    string Name { get; }
     Task<OcrResult> RecognizeAsync(ImageCrop crop, CancellationToken ct);
 }
 ```
@@ -372,6 +373,27 @@ The first OCR milestone should compare at least representative:
 - mixed Chinese/English
 
 Return OCR confidence when available.
+
+Phase 3 represents this explicitly as:
+
+```csharp
+public sealed record OcrResult(
+    string Text,
+    double? OcrConfidence,
+    OcrTextStatus Status);
+```
+
+`OcrConfidence` is nullable because not every engine supplies it. It is neither a
+`DetectionScore` nor a Jev probability. Engines with a confidence signal must return
+`LowConfidence` below their documented threshold instead of silently promoting the
+text to a trusted result. `NoText` and `Unsupported` are explicit non-text outcomes.
+
+The Phase 3 evaluator receives a captured frame plus a capture-relative bubble or
+optional quoted-region rectangle and extracts that crop before calling `IOcrEngine`.
+It never submits the full WeChat window. A quoted region, when supplied, is associated
+with its containing message and evaluated separately from the main message text.
+Automatic quoted-region location remains outside Phase 3; callers must not silently
+merge quote text and main text into one sentence.
 
 ---
 

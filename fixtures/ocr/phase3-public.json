@@ -1,0 +1,49 @@
+{
+  "fixtures": [
+    {
+      "name": "short_self",
+      "image": "../../docs/assets/wechat-dark-layout-reference.png",
+      "expected": "怎么说",
+      "x": 1067,
+      "y": 120,
+      "width": 106,
+      "height": 39
+    },
+    {
+      "name": "short_remote",
+      "image": "../../docs/assets/wechat-dark-layout-reference.png",
+      "expected": "诶哟我去",
+      "x": 478,
+      "y": 939,
+      "width": 127,
+      "height": 54
+    },
+    {
+      "name": "mixed_remote",
+      "image": "../../docs/assets/wechat-dark-layout-reference.png",
+      "expected": "一直异地谈不了的sos",
+      "x": 478,
+      "y": 1314,
+      "width": 244,
+      "height": 54
+    },
+    {
+      "name": "quoted_reply.main",
+      "image": "../../docs/assets/wechat-dark-layout-reference.png",
+      "expected": "诶哟我去",
+      "x": 478,
+      "y": 939,
+      "width": 127,
+      "height": 54
+    },
+    {
+      "name": "quoted_reply.quoted",
+      "image": "../../docs/assets/wechat-dark-layout-reference.png",
+      "expected": "哈哈复哈哈兮:在坡她就说什么在磨合期了现在应该都磨平了",
+      "x": 486,
+      "y": 1004,
+      "width": 455,
+      "height": 54
+    }
+  ]
+}
