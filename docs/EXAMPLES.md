@@ -124,9 +124,9 @@ Screenshot entire dual-monitor desktop 10 times/sec
 Detector output:
 
 ```text
-remote [x=101, y=622, w=148, h=42] confidence=.94
-remote [x=101, y=674, w=112, h=42] confidence=.92
-self   [x=642, y=350, w=281, h=46] confidence=.97
+remote [x=101, y=622, w=148, h=42] detection_score=.94
+remote [x=101, y=674, w=112, h=42] detection_score=.92
+self   [x=642, y=350, w=281, h=46] detection_score=.97
 ```
 
 Coordinates are capture-relative and later transformed to desktop/DIP space.

@@ -103,12 +103,12 @@ static int AnalyzeAndWrite(CapturedFrame frame, string outputPath)
     var debugFrame = DetectionDebugRenderer.Render(frame, result);
     PngFrameWriter.Save(debugFrame, outputPath);
 
-    Console.WriteLine($"Chat ROI: {FormatCapture(result.ChatRegion.Bounds)}, confidence={result.ChatRegion.Confidence:F3}");
-    Console.WriteLine("side, x, y, width, height, confidence");
+    Console.WriteLine($"Chat ROI: {FormatCapture(result.ChatRegion.Bounds)}, detection_score={result.ChatRegion.DetectionScore:F3}");
+    Console.WriteLine("side, x, y, width, height, detection_score");
     foreach (var bubble in result.Bubbles)
     {
         Console.WriteLine(
-            $"{bubble.Side}, {bubble.Bounds.X}, {bubble.Bounds.Y}, {bubble.Bounds.Width}, {bubble.Bounds.Height}, {bubble.Confidence:F3}");
+            $"{bubble.Side}, {bubble.Bounds.X}, {bubble.Bounds.Y}, {bubble.Bounds.Width}, {bubble.Bounds.Height}, {bubble.DetectionScore:F3}");
     }
 
     Console.WriteLine($"bubble_detect_ms={result.Duration.TotalMilliseconds:F1}");

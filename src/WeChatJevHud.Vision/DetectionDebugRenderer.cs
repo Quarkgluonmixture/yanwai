@@ -26,11 +26,12 @@ public static class DetectionDebugRenderer
                 ToRect(result.ChatRegion.Bounds));
             DrawLabel(
                 drawing,
-                $"chat ROI {result.ChatRegion.Confidence:F2}",
+                $"chat ROI detection_score={result.ChatRegion.DetectionScore:F2}",
                 result.ChatRegion.Bounds.X + thickness,
-                result.ChatRegion.Bounds.Y + thickness,
+                result.ChatRegion.Bounds.Bottom,
                 Brushes.DeepSkyBlue,
-                frame);
+                frame,
+                placeBelowAnchor: true);
 
             foreach (var bubble in result.Bubbles)
             {
@@ -42,7 +43,7 @@ public static class DetectionDebugRenderer
                 };
                 drawing.DrawRectangle(null, new Pen(color, thickness), ToRect(bubble.Bounds));
                 var label = FormattableString.Invariant(
-                    $"{bubble.Side} {bubble.Confidence:F2} [{bubble.Bounds.X},{bubble.Bounds.Y},{bubble.Bounds.Width},{bubble.Bounds.Height}]");
+                    $"{bubble.Side} detection_score={bubble.DetectionScore:F2} [{bubble.Bounds.X},{bubble.Bounds.Y},{bubble.Bounds.Width},{bubble.Bounds.Height}]");
                 DrawLabel(drawing, label, bubble.Bounds.X, bubble.Bounds.Y, color, frame);
             }
         }
@@ -69,7 +70,8 @@ public static class DetectionDebugRenderer
         double x,
         double y,
         Brush color,
-        CapturedFrame frame)
+        CapturedFrame frame,
+        bool placeBelowAnchor = false)
     {
         var fontSize = Math.Max(12, frame.Height / 100d);
         var formatted = new FormattedText(
@@ -81,7 +83,8 @@ public static class DetectionDebugRenderer
             Brushes.White,
             1);
         var labelX = Math.Clamp(x, 0, Math.Max(0, frame.Width - formatted.Width - 8));
-        var labelY = Math.Clamp(y - formatted.Height - 2, 0, Math.Max(0, frame.Height - formatted.Height - 4));
+        var desiredLabelY = placeBelowAnchor ? y + 2 : y - formatted.Height - 2;
+        var labelY = Math.Clamp(desiredLabelY, 0, Math.Max(0, frame.Height - formatted.Height - 4));
         drawing.DrawRectangle(
             new SolidColorBrush(Color.FromArgb(210, 20, 20, 20)),
             null,

@@ -9,4 +9,4 @@ public interface IBubbleDetector
     IReadOnlyList<DetectedBubble> Detect(CapturedFrame frame, CapturePixelRect chatRegion);
 }
 
-public sealed record DetectedBubble(CapturePixelRect Bounds, MessageSide Side, double Confidence);
+public sealed record DetectedBubble(CapturePixelRect Bounds, MessageSide Side, double DetectionScore);

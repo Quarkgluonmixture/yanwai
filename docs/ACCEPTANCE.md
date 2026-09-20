@@ -55,7 +55,7 @@ Manual verification evidence:
 
 ## Phase 2 — Chat ROI and bubble detection
 
-**Status: IMPLEMENTED — awaiting human visual acceptance of the debug frames before PASS.**
+**Status: IMPLEMENTED — 1277×1526 captures manually accepted; awaiting cross-scale visual acceptance before PASS.**
 
 ### Goal
 
@@ -73,7 +73,7 @@ Using the user's dark-theme WeChat layout and fixture screenshot:
 - [x] Detection returns capture-relative bounding boxes.
 - [x] Window move does not change capture-relative message geometry.
 - [x] No absolute global screen pixel constants are required.
-- [x] Detector exposes confidence or an equivalent uncertainty indicator.
+- [x] Detector exposes a heuristic `detection_score` uncertainty indicator.
 
 ### Fixture target
 
@@ -87,7 +87,12 @@ Implementation evidence:
 - reference fixture: 5 `Remote`, 6 `Self`, 0 `Unknown`, with no timestamp/avatar detections;
 - real 150% and 100% captures: text bubbles remained detected after the DPI/monitor change;
 - current image and sticker messages were ignored;
-- debug output includes ROI, labeled boxes, confidence, capture-relative coordinates, and `bubble_detect_ms`.
+- debug output includes ROI, labeled boxes, heuristic detection scores, capture-relative coordinates, and `bubble_detect_ms`.
+
+Manual evidence for 1277×1526 dark-theme captures:
+- the user confirmed correct `Remote` and `Self` detection with no obvious false positives or false negatives;
+- avatars, timestamps, image/sticker messages, composer, and conversation list were excluded;
+- quoted reply text was not classified as a separate message bubble.
 
 Visual comparison evidence (false-positive/false-negative counts are human judgments):
 
@@ -99,11 +104,22 @@ Visual comparison evidence (false-positive/false-negative counts are human judgm
 | `wechat-20260921-031243.png` | compact 100% | 4 | 4 | 0 | 0 |
 | `wechat-20260921-033329.png` | current live 150% | 10 | 10 | 0 | 0 |
 
+Cross-scale implementation evidence awaiting user visual confirmation:
+
+| Capture | Frame | DPI/layout | Detected | Debug artifact |
+| --- | --- | --- | ---: | --- |
+| `wechat-20260921-031220.png` | 989×680 | 100% external monitor | 4 | `wechat-20260921-031220-bubbles-detection-score.png` |
+| `wechat-20260921-034532.png` | 662×680 | 100% narrow window | 6 | `wechat-20260921-034532-bubbles-detection-score.png` |
+
+The automated cross-scale test also exercises 989×680 and 662×680 layouts
+through the public ROI/detector pipeline and asserts capture-relative ROI,
+`Remote`/`Self` bounds, and bounded heuristic detection scores.
+
 The matching `*-bubbles.png` files in the ignored `debug-captures/` directory
 are the local visual artifacts. They are intentionally not committed because
 real chat captures are private.
 
-Human exit gate: inspect at least one annotated current capture and confirm the
+Human exit gate: inspect both cross-scale annotated captures and confirm the
 boxes match visible text bubbles before changing this phase to `PASS` or starting
 Phase 3.
 
@@ -213,7 +229,7 @@ Show Jev judgments beside the corresponding remote message.
 - [ ] Minimize/hide WeChat -> HUD hides.
 - [ ] Default behavior avoids leaving the HUD floating over unrelated foreground apps.
 - [ ] Collapsed HUD shows only a few concise judgments.
-- [ ] Debug-expanded view can show OCR/detection/Jev timings/confidence.
+- [ ] Debug-expanded view can show timings plus distinct detection scores, OCR confidence, and Jev probability/confidence.
 - [ ] Overlay does not contaminate its own capture path.
 
 ---

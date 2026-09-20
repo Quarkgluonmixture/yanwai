@@ -286,3 +286,24 @@ when the metadata is stale or unrelated to the visible chat.
 **Rejected alternative**
 
 - Use `GetWindowText(HWND)` as the conversation key.
+
+---
+
+## D-015 — Detection scores are not confidence probabilities
+
+**Decision**
+
+Name the Phase 2 heuristic output `DetectionScore` in code and
+`detection_score` in diagnostics. Do not label it as confidence or probability.
+Keep it distinct from `OcrConfidence` and Jev `Probability`/confidence values.
+
+**Reason**
+
+The current value combines shape and alignment heuristics. It is useful for
+ranking and thresholding but has not been calibrated against an empirical
+probability distribution.
+
+**Rejected alternative**
+
+- Present the heuristic value as generic `Confidence`, which could incorrectly
+  imply that `0.94` means a calibrated 94% likelihood.

@@ -208,13 +208,13 @@ public sealed class DarkThemeBubbleDetector : IBubbleDetector
         };
         var shapeScore = Math.Clamp((fillRatio - 0.35) / 0.55, 0, 1);
         var alignmentScore = Math.Clamp(1 - (anchorGap / 0.28), 0, 1);
-        var confidence = 0.68 + (0.20 * shapeScore) + (0.12 * alignmentScore);
+        var detectionScore = 0.68 + (0.20 * shapeScore) + (0.12 * alignmentScore);
         if (side == MessageSide.Unknown)
         {
-            confidence = Math.Min(confidence, 0.69);
+            detectionScore = Math.Min(detectionScore, 0.69);
         }
 
-        bubble = new DetectedBubble(bounds, side, Math.Clamp(confidence, 0, 0.99));
+        bubble = new DetectedBubble(bounds, side, Math.Clamp(detectionScore, 0, 0.99));
         return true;
     }
 

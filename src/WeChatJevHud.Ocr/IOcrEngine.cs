@@ -10,4 +10,4 @@ public interface IOcrEngine
 
 public sealed record ImageCrop(CapturedFrame Frame, CapturePixelRect Bounds);
 
-public sealed record OcrResult(string Text, double? Confidence, bool IsSupported);
+public sealed record OcrResult(string Text, double? OcrConfidence, bool IsSupported);

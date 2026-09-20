@@ -15,7 +15,7 @@ public sealed class DarkThemeChatRegionLocatorTests
         Assert.InRange(region.Bounds.Y, 116, 124);
         Assert.InRange(region.Bounds.Right, frame.Width - 1, frame.Width);
         Assert.InRange(region.Bounds.Bottom, 1384, 1392);
-        Assert.True(region.Confidence >= 0.8, $"ROI confidence was {region.Confidence:F3}");
+        Assert.True(region.DetectionScore >= 0.8, $"ROI detection score was {region.DetectionScore:F3}");
     }
 
     private static string FixturePath(string name) =>

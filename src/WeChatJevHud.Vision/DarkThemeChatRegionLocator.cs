@@ -55,11 +55,11 @@ public sealed class DarkThemeChatRegionLocator : IChatRegionLocator
             throw new InvalidOperationException("The WeChat chat region dividers produced an empty rectangle.");
         }
 
-        var confidence = Math.Clamp(
+        var detectionScore = Math.Clamp(
             (paneDividerScore + header.Score + composer.Score) / 3d,
             0,
             1);
-        return new DetectedChatRegion(bounds, confidence);
+        return new DetectedChatRegion(bounds, detectionScore);
     }
 
     private static Divider FindHorizontalDivider(

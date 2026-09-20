@@ -38,7 +38,7 @@ public sealed class DarkThemeBubbleDetectorTests
 
         Assert.All(bubbles, bubble =>
         {
-            Assert.InRange(bubble.Confidence, 0.75, 1);
+            Assert.InRange(bubble.DetectionScore, 0.75, 1);
             Assert.True(bubble.Bounds.X >= chatRegion.X);
             Assert.True(bubble.Bounds.Y >= chatRegion.Y);
             Assert.True(bubble.Bounds.Right <= chatRegion.Right);

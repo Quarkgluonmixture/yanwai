@@ -115,6 +115,7 @@ public sealed record ChatMessage(
     string Text,
     PixelRect BubbleRect,
     string? QuotedText,
+    PixelRect? QuotedRegion,
     DateTimeOffset ObservedAt,
     double OcrConfidence,
     bool IsVisible
@@ -132,6 +133,11 @@ public enum MessageSide
 Fields may evolve, but preserve the separation between:
 - observed facts;
 - inferred semantic judgments.
+
+For a quoted reply, `QuotedRegion`/`QuotedText` are optional metadata associated
+with the containing message. They are not independent message bubbles. Phase 2
+does not detect that secondary region; Phase 3 may add it without changing the
+meaning of `DetectedBubble.Bounds` as the main message-bubble bounds.
 
 ### Message identity
 
@@ -275,9 +281,13 @@ Conceptual output:
 public sealed record DetectedBubble(
     PixelRect Bounds,
     MessageSide Side,
-    double Confidence
+    double DetectionScore
 );
 ```
+
+`DetectionScore` is an uncalibrated heuristic quality/ranking score. It must not
+be presented as a probability. Keep it distinct from a later OCR engine's
+`OcrConfidence` and Jev's `Probability`/confidence values.
 
 Initial visual scope:
 - dark WeChat theme;
@@ -300,7 +310,7 @@ Must be able to render/export a debug frame containing:
 - chat ROI
 - one rectangle per detected bubble
 - `remote/self/unknown`
-- detection confidence
+- heuristic detection score
 - capture-relative coordinates
 
 This is required before OCR integration.
@@ -609,6 +619,6 @@ Also track:
 - CPU usage during idle
 - duplicate-message suppressions
 - OCR confidence
-- detection confidence
+- heuristic detection score
 
 Do not optimize solely from synthetic benchmarks.

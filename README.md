@@ -6,7 +6,7 @@ This checkout implements Acceptance Phases 0–2: a Windows-native .NET 8 bootst
 
 - `WeChatJevHud.App`: WPF diagnostic UI that refreshes HWND/process/title/class, desktop bounds, monitor, and DPI every 500 ms. Its button saves and previews one frame only when explicitly pressed.
 - `WeChatJevHud.Diagnostics`: command-line window diagnostics, explicit capture, offline fixture detection, and capture-plus-detection.
-- `WeChatJevHud.Vision`: capture-relative chat ROI location, `Remote`/`Self`/`Unknown` text-bubble detection, confidence, timing, and annotated debug rendering.
+- `WeChatJevHud.Vision`: capture-relative chat ROI location, `Remote`/`Self`/`Unknown` text-bubble detection, heuristic detection scores, timing, and annotated debug rendering.
 - Replaceable interfaces for window tracking, capture, bubble detection, OCR, Jev, and overlay rendering. OCR, Jev, and overlay intentionally remain interface-only.
 - Per-Monitor DPI Awareness V2 manifests for both runnable programs.
 
@@ -46,7 +46,7 @@ Run Phase 2 against an existing fixture or explicitly saved frame:
   -Output .\debug-captures\wechat-example-bubbles.png
 ```
 
-The detector prints `side, x, y, width, height, confidence`. Coordinates are relative to the captured WeChat render frame. Debug frames are explicit, local, and gitignored.
+The detector prints `side, x, y, width, height, detection_score`. Coordinates are relative to the captured WeChat render frame. `detection_score` is a heuristic ranking/quality signal, not a calibrated probability. Debug frames are explicit, local, and gitignored.
 
 From WSL, invoke the same Windows scripts through interop, for example:
 
