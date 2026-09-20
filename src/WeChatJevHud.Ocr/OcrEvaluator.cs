@@ -19,16 +19,22 @@ public sealed class OcrEvaluator
             var timer = Stopwatch.StartNew();
             var result = await engine.RecognizeAsync(fixture.Crop, cancellationToken).ConfigureAwait(false);
             timer.Stop();
+            var rawRecognized = result.RawText;
+            var normalizedExpected = OcrTextNormalizer.Normalize(fixture.Expected);
+            var normalizedRecognized = OcrTextNormalizer.Normalize(rawRecognized);
             rows.Add(new OcrEvaluationRow(
                 engine.Name,
                 fixture.Name,
                 fixture.Expected,
-                result.Text,
+                rawRecognized,
+                normalizedRecognized,
                 result.OcrConfidence,
                 timer.Elapsed,
                 result.Status,
-                string.Equals(fixture.Expected, result.Text, StringComparison.Ordinal),
-                CharacterErrorRate(fixture.Expected, result.Text)));
+                string.Equals(fixture.Expected, rawRecognized, StringComparison.Ordinal),
+                string.Equals(normalizedExpected, normalizedRecognized, StringComparison.Ordinal),
+                CharacterErrorRate(fixture.Expected, rawRecognized),
+                CharacterErrorRate(normalizedExpected, normalizedRecognized)));
         }
 
         return rows;
@@ -72,9 +78,15 @@ public sealed record OcrEvaluationRow(
     string Engine,
     string Fixture,
     string Expected,
-    string Recognized,
+    string RawRecognized,
+    string NormalizedRecognized,
     double? OcrConfidence,
     TimeSpan Elapsed,
     OcrTextStatus Status,
-    bool ExactMatch,
-    double CharacterErrorRate);
+    bool RawExactMatch,
+    bool NormalizedMatch,
+    double RawCharacterErrorRate,
+    double NormalizedCharacterErrorRate)
+{
+    public bool ExactMatch => RawExactMatch;
+}

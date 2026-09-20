@@ -8,9 +8,9 @@ public sealed class AdaptiveOcrEngineTests
     [Fact]
     public async Task RecognizeAsync_accepts_the_highest_confidence_candidate_at_threshold()
     {
-        var lower = new StubOcrEngine("lower", new OcrResult("候选一", 0.78, OcrTextStatus.Recognized));
-        var higher = new StubOcrEngine("higher", new OcrResult("候选二", 0.90, OcrTextStatus.Recognized));
-        var fallback = new StubOcrEngine("fallback", new OcrResult("回退", null, OcrTextStatus.Recognized));
+        var lower = new StubOcrEngine("lower", new OcrResult("候选一", 0.78, OcrTextStatus.Recognized, "候选一"));
+        var higher = new StubOcrEngine("higher", new OcrResult("候选二", 0.90, OcrTextStatus.Recognized, "候选二"));
+        var fallback = new StubOcrEngine("fallback", new OcrResult("回退", null, OcrTextStatus.Recognized, "回退"));
         var engine = new AdaptiveOcrEngine([lower, higher], fallback, confidenceThreshold: 0.90);
 
         var result = await engine.RecognizeAsync(Crop(), CancellationToken.None);
@@ -23,9 +23,9 @@ public sealed class AdaptiveOcrEngineTests
     [Fact]
     public async Task RecognizeAsync_uses_uncertain_fallback_for_a_candidate_below_the_safe_threshold()
     {
-        var first = new StubOcrEngine("first", new OcrResult("错一", 0.20, OcrTextStatus.LowConfidence));
-        var second = new StubOcrEngine("second", new OcrResult("错二", 0.87, OcrTextStatus.Recognized));
-        var fallback = new StubOcrEngine("fallback", new OcrResult("短文本", null, OcrTextStatus.Recognized));
+        var first = new StubOcrEngine("first", new OcrResult("错一", 0.20, OcrTextStatus.LowConfidence, "错一"));
+        var second = new StubOcrEngine("second", new OcrResult("错二", 0.87, OcrTextStatus.Recognized, "错二"));
+        var fallback = new StubOcrEngine("fallback", new OcrResult("短文本", null, OcrTextStatus.Recognized, "短文本"));
         var engine = new AdaptiveOcrEngine([first, second], fallback, confidenceThreshold: 0.90);
 
         var result = await engine.RecognizeAsync(Crop(), CancellationToken.None);

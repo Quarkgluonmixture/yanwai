@@ -21,6 +21,7 @@ public sealed class WindowsMediaOcrEngineTests
 
         Assert.Equal(OcrTextStatus.NoText, result.Status);
         Assert.Equal(string.Empty, result.Text);
+        Assert.Equal(string.Empty, result.RawText);
         Assert.Null(result.OcrConfidence);
     }
 
@@ -36,6 +37,7 @@ public sealed class WindowsMediaOcrEngineTests
 
         Assert.Equal(OcrTextStatus.Recognized, result.Status);
         Assert.Contains("Hello OCR 123", result.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Hello OCR 123", result.RawText, StringComparison.OrdinalIgnoreCase);
         Assert.Null(result.OcrConfidence);
     }
 

@@ -337,17 +337,17 @@ not probability calibration.
 
 An isolated recognition-only PaddleOCR benchmark was added before final Phase 3
 acceptance. On the same private crop corpus, both PP-OCRv6 small and medium materially
-improved short-Chinese exact match, but both also assigned `rec_score >= 0.90` to four
+improved short-Chinese exact match, but both also assigned high `rec_score` values to
 wrong results and truncated multiline crops. `rec_score` is therefore recorded as an
 engine-specific, uncalibrated diagnostic—not as `OcrConfidence`, `DetectionScore`, or
-a probability. The small model is the preferred candidate for a later replaceable
-adapter because medium did not improve accuracy, but this experiment does not change
-the current production selection policy.
+a probability. Small is the preferred candidate for later explicit routing because
+medium provided no accuracy benefit. Existing Adaptive/Tesseract remains useful for
+multiline cases. Paddle is not productionized by the Phase 3 PR.
 
 **Status**
 
-This is the Phase 3 candidate pending manual acceptance, not an irreversible engine
-lock-in. The adapters and selection policy can be replaced independently.
+Phase 3 is accepted. The adapters and selection policy remain independently
+replaceable; Paddle remains an evaluated candidate rather than a production adapter.
 
 **Rejected alternatives**
 
@@ -358,3 +358,29 @@ lock-in. The adapters and selection policy can be replaced independently.
 - Manufacture a confidence value for Windows Media OCR.
 - Use Paddle text detection after Phase 2 has already supplied reliable crop geometry.
 - Treat Paddle `rec_score` as calibrated or directly comparable across engines.
+
+---
+
+## D-017 — OCR evaluation preserves raw and normalized truth separately
+
+**Decision**
+
+Every OCR evaluation row records raw recognized text, normalized recognized text,
+literal raw exact match, normalized match, raw CER, and normalized CER. Generic
+`exact_match` is an alias for literal raw equality only. Normalization is CJK-aware and
+conservative: it may remove artificial spacing between CJK characters, CJK-adjacent
+full-width punctuation spacing, and OCR separator artifacts, but it preserves normal
+Latin punctuation spacing such as `123, I just got home.`.
+
+**Reason**
+
+The first real English run returned `123,I` while the expected text contained
+`123, I`. The previous normalization removed the expected space too, incorrectly
+reporting an exact match. Separate layers preserve evaluation truth while still making
+CJK OCR artifacts measurable.
+
+**Rejected alternatives**
+
+- Call normalized equality an exact match.
+- Remove spaces adjacent to every Unicode punctuation character.
+- Discard raw engine output before evaluation.

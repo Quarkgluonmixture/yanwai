@@ -380,8 +380,13 @@ Phase 3 represents this explicitly as:
 public sealed record OcrResult(
     string Text,
     double? OcrConfidence,
-    OcrTextStatus Status);
+    OcrTextStatus Status,
+    string RawText);
 ```
+
+`Text` is the engine's normalized text for consumers. `RawText` is required and
+preserves the engine output used by evaluation; an adapter must not substitute
+normalized text for unavailable raw output.
 
 `OcrConfidence` is nullable because not every engine supplies it. It is neither a
 `DetectionScore` nor a Jev probability. Engines with a confidence signal must return
@@ -394,6 +399,12 @@ It never submits the full WeChat window. A quoted region, when supplied, is asso
 with its containing message and evaluated separately from the main message text.
 Automatic quoted-region location remains outside Phase 3; callers must not silently
 merge quote text and main text into one sentence.
+
+Evaluation records raw and normalized recognized text, literal raw exact match,
+normalized match, raw CER, and normalized CER separately. Generic `exact_match`
+means literal equality with `RawText`; normalization cannot promote a raw mismatch to
+an exact match. Normalization is conservative and CJK-aware, preserving normal Latin
+punctuation spacing such as `123, I just got home.`.
 
 ---
 

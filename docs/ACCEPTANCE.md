@@ -128,14 +128,13 @@ Final manual acceptance evidence (2026-09-21):
 - the user accepted `detection_score` as the correct name for the uncalibrated
   heuristic score.
 
-The Phase 2 human exit gate is satisfied. Phase 3 remains out of scope for this
-branch.
+The Phase 2 human exit gate was satisfied before Phase 3 began.
 
 ---
 
 ## Phase 3 — OCR
 
-**Status: IMPLEMENTED — awaiting manual acceptance.**
+**Status: PASS — automated evaluation and manual acceptance complete.**
 
 ### Goal
 
@@ -158,8 +157,12 @@ Extract text from individual detected message crops.
 Provide a small table/console report:
 
 ```text
-fixture | expected | recognized | status | ocr_confidence | exact_match | normalized_cer | elapsed_ms
+fixture | expected | raw_recognized | normalized_recognized | status | ocr_confidence | raw_exact_match | normalized_match | raw_cer | normalized_cer | elapsed_ms
 ```
+
+`exact_match` means literal equality between the expected text and raw OCR output.
+Normalization is evaluated separately and can never promote a raw mismatch to an
+exact match.
 
 Implementation evidence:
 - the evaluation harness accepts capture-relative bubble bounds, extracts only those
@@ -175,9 +178,8 @@ Implementation evidence:
 - after safety-threshold recalibration, only results with Tesseract confidence at or
   above `0.90` are promoted to `Recognized`; all evaluated incorrect adaptive outputs
   are now `LowConfidence` or `NoText`, never trusted text;
-- pure English is covered by an automated OCR integration test; a real WeChat
-  English-only bubble remains part of manual acceptance because the current real
-  captures contain mixed text but no English-only bubble;
+- pure English is covered by both an automated OCR integration test and a real
+  WeChat English-only bubble captured from File Transfer Assistant;
 - Tesseract results below `0.90` return `LowConfidence`; Windows results preserve
   `OcrConfidence = null` because that API supplies no confidence value. Adaptive
   fallback text is also marked `LowConfidence` rather than silently promoted.
@@ -195,48 +197,59 @@ threshold/fallback behavior, Windows OCR, and the committed real screenshot crop
 Final manual-acceptance evidence in the private/gitignored evaluation area:
 - 11 short Chinese bubbles were taken directly from Phase 2 detector boxes across two
   real local captures;
-- adaptive output produced 7/11 exact strings: 2 exact `Recognized`, 5 exact but
-  conservatively `LowConfidence`; the remaining 3 incorrect strings were
+- adaptive output produced 7/11 normalized matches: 2 `Recognized`, 5 conservatively
+  `LowConfidence`; the remaining 3 normalized mismatches were
   `LowConfidence` and the one-character sample returned `NoText`;
 - no incorrect adaptive result was left as `Recognized`; the observed corpus-level
-  character error rate was `0.222` (8 edit operations over 36 expected characters);
+  normalized character error rate was `0.222` (8 edit operations over 36 expected
+  characters);
 - all 11 generated short-message crops and the existing six main/quote evaluation
   crops were visually inspected and contain only their intended bubble or separately
   supplied quote region;
 - the short-set manifest, full candidate tables, and crop PNGs remain under
   `.ocr-cache/` and are intentionally not committed.
 
-Experimental PaddleOCR recognition-only benchmark evidence:
+Final PaddleOCR recognition-only benchmark evidence:
 - `scripts/paddle_ocr_benchmark.py` uses the official `TextRecognition` module only;
   the existing Phase 2 detector supplies the crop geometry and Paddle text detection
   is never invoked;
 - PaddlePaddle `3.3.0` and PaddleOCR `3.7.0` ran locally on `gpu:0` (RTX 5080 Laptop
   GPU). One warmup per model was excluded from timing;
 - on the same 11 private short-Chinese crops, both `PP-OCRv6_small_rec` and
-  `PP-OCRv6_medium_rec` produced 10/11 exact strings and corpus CER `0.056`, compared
-  with Adaptive OCR's 7/11 and corpus CER `0.222`;
-- across all 17 currently available crops, each Paddle model produced 12/17 exact
-  strings, compared with Adaptive OCR's 10/17;
-- both Paddle models produced four incorrect results with `rec_score >= 0.90`.
+  `PP-OCRv6_medium_rec` produced 10/11 raw-exact strings and raw/normalized corpus
+  CER `0.056`; Adaptive OCR produced 7/11 normalized matches and normalized corpus
+  CER `0.222` (its raw layer retains engine-inserted CJK spacing);
+- across all 18 real crops, each Paddle model produced 12/18 raw-exact and 12/18
+  normalized matches; Adaptive OCR produced 0/18 raw-exact and 10/18 normalized
+  matches because its engines expose raw OCR spacing/line artifacts separately;
+- the real English fixture expected `Hello OCR test 123, I just got home.` while
+  PP-OCRv6 small returned `Hello OCR test 123,I just got home.`. The corrected
+  evaluator reports `raw_exact_match=false`, `normalized_match=false`, and raw/
+  normalized CER `0.028` rather than hiding the missing space;
+- PP-OCRv6 small produced five incorrect raw outputs with `rec_score >= 0.90`;
+  medium produced four.
   Therefore `rec_score` remains an uncalibrated engine-specific diagnostic and must
   not by itself promote text to trusted `Recognized` status;
 - direct whole-crop recognition truncated the long wrapped and quote-region samples,
   confirming that a future Paddle production adapter would need an explicit
   recognition-only line-splitting policy without reintroducing Paddle text detection;
-- the two independently generated crop sets were pixel-identical for all 17 inputs.
+- the two independently generated crop sets were pixel-identical for all 18 inputs.
   Full reports and crops are stored under `.ocr-cache/` and are not committed.
 
-The experimental recommendation is `PP-OCRv6_small_rec` rather than the medium model
-for a future replaceable candidate: they tied on exact-match/CER, while the medium
-model did not improve the difficult samples. This recommendation does not yet change
-the production OCR selection policy. A safe adoption policy must keep Paddle
-`rec_score` distinct and surface disagreement/unsupported multiline cases as
-low-confidence rather than trusted text.
+Final Phase 3 conclusions:
+- `PP-OCRv6_small_rec` materially improves short/single-line Chinese recognition;
+- `PP-OCRv6_medium_rec` is rejected because it produced no accuracy benefit;
+- Paddle `rec_score` is uncalibrated, wrong high-score outputs were observed, and it
+  must not be treated as a correctness probability;
+- whole-crop Paddle recognition truncates multiline and quoted-region text;
+- existing Adaptive/Tesseract remains useful for multiline cases;
+- future Paddle production use requires explicit routing and disagreement handling,
+  not `rec_score` thresholds alone;
+- Paddle remains an evaluated candidate and is not productionized in this PR.
 
-The real English-only WeChat bubble check remains required before manual acceptance.
-
-Do not begin Phase 4 until the crop artifacts and evaluation table receive manual
-acceptance.
+The user supplied and accepted the real English-bubble test as the final manual gate.
+The corrected 18-crop evaluation completed successfully, so Phase 3 is PASS. Phase 4
+remains unimplemented and must begin separately after this PR is merged.
 
 ---
 

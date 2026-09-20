@@ -205,14 +205,14 @@ static async Task<int> EvaluateOcrAsync(
     foreach (var engine in engines)
     {
         WriteLine($"## engine: {engine.Name}");
-        WriteLine("| fixture | expected | recognized | status | ocr_confidence | exact_match | normalized_cer | elapsed_ms |");
-        WriteLine("| --- | --- | --- | --- | ---: | --- | ---: | ---: |");
+        WriteLine("| fixture | expected | raw_recognized | normalized_recognized | status | ocr_confidence | raw_exact_match | normalized_match | raw_cer | normalized_cer | elapsed_ms |");
+        WriteLine("| --- | --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: |");
         var rows = await evaluator.EvaluateAsync(engine, fixtures, CancellationToken.None);
         foreach (var row in rows)
         {
             var confidence = row.OcrConfidence is { } value ? value.ToString("F3") : "n/a";
             WriteLine(
-                $"| {TableCell(row.Fixture)} | {TableCell(row.Expected)} | {TableCell(row.Recognized)} | {row.Status} | {confidence} | {row.ExactMatch.ToString().ToLowerInvariant()} | {row.CharacterErrorRate:F3} | {row.Elapsed.TotalMilliseconds:F1} |");
+                $"| {TableCell(row.Fixture)} | {TableCell(row.Expected)} | {TableCell(row.RawRecognized)} | {TableCell(row.NormalizedRecognized)} | {row.Status} | {confidence} | {row.RawExactMatch.ToString().ToLowerInvariant()} | {row.NormalizedMatch.ToString().ToLowerInvariant()} | {row.RawCharacterErrorRate:F3} | {row.NormalizedCharacterErrorRate:F3} | {row.Elapsed.TotalMilliseconds:F1} |");
         }
 
         WriteLine();
@@ -271,7 +271,11 @@ static string FormatCapture(CapturePixelRect rect) =>
     $"x={rect.X}, y={rect.Y}, width={rect.Width}, height={rect.Height}";
 
 static string TableCell(string value) =>
-    value.Replace('|', '¦').ReplaceLineEndings(" ");
+    value
+        .Replace("\\", "\\\\", StringComparison.Ordinal)
+        .Replace("\r", "\\r", StringComparison.Ordinal)
+        .Replace("\n", "\\n", StringComparison.Ordinal)
+        .Replace('|', '¦');
 
 static string SafeFileName(string value)
 {

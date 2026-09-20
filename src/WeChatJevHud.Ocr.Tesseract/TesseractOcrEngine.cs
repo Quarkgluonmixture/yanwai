@@ -44,10 +44,15 @@ public sealed class TesseractOcrEngine : IOcrEngine, IDisposable
         {
             using var image = Pix.LoadFromMemory(png);
             using var page = _engine.Process(image, PageSegMode.SingleBlock);
-            var text = OcrTextNormalizer.Normalize(page.GetText());
+            var rawText = page.GetText();
+            var text = OcrTextNormalizer.Normalize(rawText);
             if (string.IsNullOrEmpty(text))
             {
-                return new OcrResult(string.Empty, page.GetMeanConfidence(), OcrTextStatus.NoText);
+                return new OcrResult(
+                    string.Empty,
+                    page.GetMeanConfidence(),
+                    OcrTextStatus.NoText,
+                    rawText);
             }
 
             var confidence = Math.Clamp(page.GetMeanConfidence(), 0, 1);
@@ -56,7 +61,8 @@ public sealed class TesseractOcrEngine : IOcrEngine, IDisposable
                 confidence,
                 confidence < _lowConfidenceThreshold
                     ? OcrTextStatus.LowConfidence
-                    : OcrTextStatus.Recognized);
+                    : OcrTextStatus.Recognized,
+                rawText);
         }
         finally
         {

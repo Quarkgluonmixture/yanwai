@@ -17,6 +17,11 @@ public static partial class OcrTextNormalizer
         for (var index = 0; index < compact.Length; index++)
         {
             var current = compact[index];
+            if (current == '¦')
+            {
+                continue;
+            }
+
             if (current == ' ' &&
                 index > 0 &&
                 index + 1 < compact.Length &&
@@ -53,13 +58,17 @@ public static partial class OcrTextNormalizer
 
     private static bool ShouldRemoveSpace(char previous, char next) =>
         (IsCjk(previous) && IsCjk(next)) ||
-        char.IsPunctuation(previous) ||
-        char.IsPunctuation(next);
+        (IsCjk(previous) && IsCjkPunctuation(next)) ||
+        (IsCjkPunctuation(previous) && IsCjk(next));
 
     private static bool IsCjk(char value) => value is
         >= '\u3400' and <= '\u4DBF' or
         >= '\u4E00' and <= '\u9FFF' or
         >= '\uF900' and <= '\uFAFF';
+
+    private static bool IsCjkPunctuation(char value) =>
+        (value is >= '\u3000' and <= '\u303F' or >= '\uFF01' and <= '\uFF65') &&
+        char.IsPunctuation(value);
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex Whitespace();

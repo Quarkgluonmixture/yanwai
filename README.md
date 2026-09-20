@@ -1,6 +1,7 @@
 # WeChat × Jev Conversation HUD
 
-This checkout implements accepted Phases 0–2 and the Phase 3 OCR candidate awaiting manual acceptance. It does not implement the new-message observer, Jev calls, or the HUD overlay.
+This checkout implements accepted Phases 0–3. It does not implement the new-message
+observer, Jev calls, or the HUD overlay.
 
 ## What is available
 
@@ -59,9 +60,11 @@ committed real WeChat fixture:
   -OcrOutput .\.ocr-cache\phase3-public-evaluation.md
 ```
 
-The report has `fixture | expected | recognized | status | ocr_confidence |
-exact_match | normalized_cer | elapsed_ms` tables for each candidate. Matching crop
-PNGs are saved beside it for visual inspection.
+The report keeps raw and normalized evaluation layers separate:
+`raw_recognized`, `normalized_recognized`, `raw_exact_match`, `normalized_match`,
+`raw_cer`, and `normalized_cer`. `exact_match` always means literal raw equality;
+normalization can never turn a raw mismatch into an exact match. Matching crop PNGs
+are saved beside the report for visual inspection.
 `.ocr-cache` is gitignored because local evaluations may include private chat text.
 
 ### Experimental PaddleOCR recognition benchmark

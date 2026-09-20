@@ -12,7 +12,11 @@ public interface IOcrEngine
 
 public sealed record ImageCrop(CapturedFrame Frame, CapturePixelRect Bounds);
 
-public sealed record OcrResult(string Text, double? OcrConfidence, OcrTextStatus Status);
+public sealed record OcrResult(
+    string Text,
+    double? OcrConfidence,
+    OcrTextStatus Status,
+    string RawText);
 
 public enum OcrTextStatus
 {

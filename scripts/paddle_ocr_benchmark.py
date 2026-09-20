@@ -10,6 +10,7 @@ import os
 import re
 import statistics
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -56,25 +57,40 @@ def summarize_rows(
     rows: list[dict[str, Any]], high_score_threshold: float
 ) -> dict[str, Any]:
     short_rows = [row for row in rows if row["group"] == "short_chinese"]
-    short_expected_characters = sum(len(row["expected"]) for row in short_rows)
-    short_edit_distance = sum(row["edit_distance"] for row in short_rows)
+    short_raw_expected_characters = sum(len(row["expected"]) for row in short_rows)
+    short_normalized_expected_characters = sum(
+        len(normalize_text(row["expected"])) for row in short_rows
+    )
+    short_raw_edit_distance = sum(row["raw_edit_distance"] for row in short_rows)
+    short_normalized_edit_distance = sum(
+        row["normalized_edit_distance"] for row in short_rows
+    )
     elapsed = [float(row["elapsed_ms"]) for row in rows]
     high_score_wrong = [
         row["fixture"]
         for row in rows
-        if not row["exact_match"]
+        if not row["raw_exact_match"]
         and row["rec_score"] is not None
         and row["rec_score"] >= high_score_threshold
     ]
     return {
-        "short_exact_match": sum(row["exact_match"] for row in short_rows),
+        "short_raw_exact_match": sum(row["raw_exact_match"] for row in short_rows),
+        "short_normalized_match": sum(
+            row["normalized_match"] for row in short_rows
+        ),
         "short_count": len(short_rows),
-        "short_corpus_cer": (
-            short_edit_distance / short_expected_characters
-            if short_expected_characters
+        "short_raw_corpus_cer": (
+            short_raw_edit_distance / short_raw_expected_characters
+            if short_raw_expected_characters
             else 0.0
         ),
-        "overall_exact_match": sum(row["exact_match"] for row in rows),
+        "short_normalized_corpus_cer": (
+            short_normalized_edit_distance / short_normalized_expected_characters
+            if short_normalized_expected_characters
+            else 0.0
+        ),
+        "overall_raw_exact_match": sum(row["raw_exact_match"] for row in rows),
+        "overall_normalized_match": sum(row["normalized_match"] for row in rows),
         "overall_count": len(rows),
         "high_score_threshold": high_score_threshold,
         "high_score_wrong_count": len(high_score_wrong),
@@ -91,6 +107,8 @@ def normalize_text(value: str | None) -> str:
         return compact
     output: list[str] = []
     for index, character in enumerate(compact):
+        if character == "¦":
+            continue
         if (
             character == " "
             and index > 0
@@ -113,8 +131,8 @@ def normalize_text(value: str | None) -> str:
 def should_remove_space(previous: str, following: str) -> bool:
     return (
         (is_cjk(previous) and is_cjk(following))
-        or is_punctuation(previous)
-        or is_punctuation(following)
+        or (is_cjk(previous) and is_cjk_punctuation(following))
+        or (is_cjk_punctuation(previous) and is_cjk(following))
     )
 
 
@@ -127,10 +145,12 @@ def is_cjk(character: str) -> bool:
     )
 
 
-def is_punctuation(character: str) -> bool:
-    import unicodedata
-
-    return unicodedata.category(character).startswith("P")
+def is_cjk_punctuation(character: str) -> bool:
+    codepoint = ord(character)
+    in_cjk_punctuation_block = (
+        0x3000 <= codepoint <= 0x303F or 0xFF01 <= codepoint <= 0xFF65
+    )
+    return in_cjk_punctuation_block and unicodedata.category(character).startswith("P")
 
 
 def safe_filename(value: str) -> str:
@@ -154,7 +174,7 @@ def prepare_crops(manifest_path: Path, crop_directory: Path) -> list[dict[str, A
     crop_paths: set[Path] = set()
     for item in fixtures:
         fixture = str(item["name"])
-        expected = normalize_text(str(item["expected"]))
+        expected = str(item["expected"])
         crop_path = crop_directory / f"{safe_filename(fixture)}.png"
         if crop_path in crop_paths:
             raise ValueError(
@@ -187,6 +207,43 @@ def prepare_crops(manifest_path: Path, crop_directory: Path) -> list[dict[str, A
             }
         )
     return prepared
+
+
+def build_evaluation_row(
+    model_name: str,
+    fixture: dict[str, Any],
+    raw_recognized: str,
+    rec_score: float,
+    elapsed_ms: float,
+) -> dict[str, Any]:
+    expected = str(fixture["expected"])
+    normalized_expected = normalize_text(expected)
+    normalized_recognized = normalize_text(raw_recognized)
+    raw_edit_distance = edit_distance(expected, raw_recognized)
+    normalized_edit_distance = edit_distance(
+        normalized_expected, normalized_recognized
+    )
+    raw_exact_match = expected == raw_recognized
+    return {
+        "engine": model_name,
+        "fixture": fixture["fixture"],
+        "group": fixture["group"],
+        "expected": expected,
+        "normalized_expected": normalized_expected,
+        "raw_recognized": raw_recognized,
+        "normalized_recognized": normalized_recognized,
+        "rec_score": rec_score,
+        "exact_match": raw_exact_match,
+        "raw_exact_match": raw_exact_match,
+        "normalized_match": normalized_expected == normalized_recognized,
+        "raw_edit_distance": raw_edit_distance,
+        "normalized_edit_distance": normalized_edit_distance,
+        "raw_cer": character_error_rate(expected, raw_recognized),
+        "normalized_cer": character_error_rate(
+            normalized_expected, normalized_recognized
+        ),
+        "elapsed_ms": elapsed_ms,
+    }
 
 
 def synchronize_gpu(device: str) -> None:
@@ -223,28 +280,14 @@ def benchmark_model(
                 f"{model_name} returned {len(output)} results for {fixture['fixture']}."
             )
         result = output[0]
-        recognized_raw = str(result["rec_text"])
-        recognized = normalize_text(recognized_raw)
-        expected = fixture["expected"]
-        distance = edit_distance(expected, recognized)
         rows.append(
-            {
-                "engine": model_name,
-                "fixture": fixture["fixture"],
-                "group": fixture["group"],
-                "expected": expected,
-                "recognized": recognized,
-                "recognized_raw": recognized_raw,
-                "rec_score": float(result["rec_score"]),
-                "exact_match": expected == recognized,
-                "edit_distance": distance,
-                "cer": (
-                    distance / len(expected)
-                    if expected
-                    else (0.0 if not recognized else 1.0)
-                ),
-                "elapsed_ms": elapsed_ms,
-            }
+            build_evaluation_row(
+                model_name,
+                fixture,
+                str(result["rec_text"]),
+                float(result["rec_score"]),
+                elapsed_ms,
+            )
         )
 
     metadata = {
@@ -262,7 +305,13 @@ def benchmark_model(
 
 
 def markdown_cell(value: Any) -> str:
-    return str(value).replace("|", "¦").replace("\r", " ").replace("\n", " ")
+    return (
+        str(value)
+        .replace("\\", "\\\\")
+        .replace("\r", "\\r")
+        .replace("\n", "\\n")
+        .replace("|", "¦")
+    )
 
 
 def render_markdown(
@@ -274,18 +323,23 @@ def render_markdown(
         "> `rec_score` is Paddle model output, not a calibrated probability and not directly comparable to DetectionScore, Tesseract confidence, or future Jev probability.",
         "",
         "Text detection was not used. Inputs are existing capture-relative WeChat bubble/quote crops.",
+        "`exact_match` in JSON is an alias of `raw_exact_match`; normalization never changes raw exactness.",
         "",
         "## Summary",
         "",
-        "| engine | short_exact | short_count | short_corpus_cer | overall_exact | overall_count | high_score_wrong | mean_ms | p50_ms | p95_ms |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| engine | short_raw_exact | short_normalized | short_count | short_raw_cer | short_normalized_cer | overall_raw_exact | overall_normalized | overall_count | high_score_raw_wrong | mean_ms | p50_ms | p95_ms |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for result in results:
         summary = result["summary"]
         lines.append(
-            f"| {result['model']} | {summary['short_exact_match']} | {summary['short_count']} | "
-            f"{summary['short_corpus_cer']:.3f} | {summary['overall_exact_match']} | "
-            f"{summary['overall_count']} | {summary['high_score_wrong_count']} | "
+            f"| {result['model']} | {summary['short_raw_exact_match']} | "
+            f"{summary['short_normalized_match']} | {summary['short_count']} | "
+            f"{summary['short_raw_corpus_cer']:.3f} | "
+            f"{summary['short_normalized_corpus_cer']:.3f} | "
+            f"{summary['overall_raw_exact_match']} | "
+            f"{summary['overall_normalized_match']} | {summary['overall_count']} | "
+            f"{summary['high_score_wrong_count']} | "
             f"{summary['latency_mean_ms']:.1f} | {summary['latency_p50_ms']:.1f} | "
             f"{summary['latency_p95_ms']:.1f} |"
         )
@@ -298,15 +352,19 @@ def render_markdown(
                 "",
                 f"Device: `{result['metadata']['device_active']}`. Warmups excluded: {result['metadata']['warmup_count']}.",
                 "",
-                "| fixture | expected | recognized | rec_score | exact_match | CER | elapsed_ms |",
-                "| --- | --- | --- | ---: | --- | ---: | ---: |",
+                "| fixture | expected | raw_recognized | normalized_recognized | rec_score | raw_exact_match | normalized_match | raw_CER | normalized_CER | elapsed_ms |",
+                "| --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: |",
             ]
         )
         for row in result["rows"]:
             lines.append(
                 f"| {markdown_cell(row['fixture'])} | {markdown_cell(row['expected'])} | "
-                f"{markdown_cell(row['recognized'])} | {row['rec_score']:.3f} | "
-                f"{str(row['exact_match']).lower()} | {row['cer']:.3f} | "
+                f"{markdown_cell(row['raw_recognized'])} | "
+                f"{markdown_cell(row['normalized_recognized'])} | "
+                f"{row['rec_score']:.3f} | "
+                f"{str(row['raw_exact_match']).lower()} | "
+                f"{str(row['normalized_match']).lower()} | "
+                f"{row['raw_cer']:.3f} | {row['normalized_cer']:.3f} | "
                 f"{row['elapsed_ms']:.1f} |"
             )
         wrong = result["summary"]["high_score_wrong_fixtures"]

@@ -22,6 +22,8 @@ public sealed class WindowsMediaOcrRealFixtureTests
 
         Assert.Equal(OcrTextStatus.Recognized, result.Status);
         Assert.Equal("诶哟我去", result.Text);
+        Assert.Equal(result.Text, OcrTextNormalizer.Normalize(result.RawText));
+        Assert.NotEmpty(result.RawText);
         Assert.Null(result.OcrConfidence);
     }
 }

@@ -48,11 +48,13 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine
         cancellationToken.ThrowIfCancellationRequested();
         var recognized = await _engine.RecognizeAsync(bitmap);
         cancellationToken.ThrowIfCancellationRequested();
-        var text = OcrTextNormalizer.Normalize(recognized.Text);
+        var rawText = recognized.Text;
+        var text = OcrTextNormalizer.Normalize(rawText);
         return new OcrResult(
             text,
             OcrConfidence: null,
-            Status: string.IsNullOrEmpty(text) ? OcrTextStatus.NoText : OcrTextStatus.Recognized);
+            Status: string.IsNullOrEmpty(text) ? OcrTextStatus.NoText : OcrTextStatus.Recognized,
+            RawText: rawText);
     }
 
     private static string PreparationName(OcrImagePreparation preparation) => preparation switch
