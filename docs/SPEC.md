@@ -356,9 +356,10 @@ identity-provider seam.
 A changed header is `PossibleConversationChange`, never an immediate epoch switch.
 The observer first reconciles the candidate view specifically against the immediately
 previous visible-message snapshot. Strong continuity consists of ordered matches using
-trusted normalized OCR text plus side, or a separate strict visual threshold; a live
-tail is strong only when trusted text matches or strict visual identity has ordered
-continuity. The normal permissive perceptual threshold, dimensions/geometry, and
+trusted normalized OCR text plus side, or at least two matches under a separate strict
+visual threshold; a live tail is strong only when trusted text matches or strict visual
+identity participates in that multi-message ordered continuity. The normal permissive
+perceptual threshold, dimensions/geometry, and
 matches found only in the bounded recent-history buffer are weak evidence. They may
 assist message reconciliation but cannot rebase a changed conversation identity.
 Without strong previous-visible continuity, the same candidate must remain stable for
@@ -404,7 +405,9 @@ layout_transitions
 Each changed-identity diagnostic also separates
 `previous_visible_strong_overlap`, `previous_visible_weak_overlap`,
 `trusted_text_overlap`, `live_tail_strong_match`, `live_tail_weak_match`, and
-`history_only_matches`; no aggregate visual-overlap count is used as switch approval.
+`history_only_matches`. The weak counts exclude matches already classified as strong,
+and reused OCR text is not counted as independent trusted-text evidence. No aggregate
+visual-overlap count is used as switch approval.
 
 and per-frame `frame_check_ms`, `change_detect_ms`, `bubble_detect_ms`, `ocr_ms`, and
 `observer_reconcile_ms`. Identical chat-ROI fingerprints skip bubble detection and OCR.

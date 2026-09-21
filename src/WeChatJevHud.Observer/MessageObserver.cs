@@ -242,9 +242,13 @@ public sealed class MessageObserver : IMessageObserver
             candidates[candidateIndex].Ocr = OcrFrom(_messages[messageIndex]);
         }
 
-        foreach (var (messageIndex, candidateIndex) in strongVisualPreviousMatches)
+        var hasStrongVisualContinuity = strongVisualPreviousMatches.Count >= 2;
+        if (hasStrongVisualContinuity)
         {
-            candidates[candidateIndex].Ocr = OcrFrom(previousVisibleMessages[messageIndex]);
+            foreach (var (messageIndex, candidateIndex) in strongVisualPreviousMatches)
+            {
+                candidates[candidateIndex].Ocr = OcrFrom(previousVisibleMessages[messageIndex]);
+            }
         }
 
         HydrateFromPendingSwitch(candidates, identity);
@@ -253,11 +257,9 @@ public sealed class MessageObserver : IMessageObserver
             string.Equals(previousVisibleMessages[match.Left].Id, _liveTailId, StringComparison.Ordinal));
         var weakVisualLiveTailMatched = weakVisualPreviousMatches.Any(match =>
             string.Equals(previousVisibleMessages[match.Left].Id, _liveTailId, StringComparison.Ordinal));
-        var hasStrongVisualContinuity =
-            strongVisualPreviousMatches.Count >= 2 ||
-            (previousVisibleMessages.Count > 0 &&
-             strongVisualPreviousMatches.Count == previousVisibleMessages.Count) ||
-            (strongVisualLiveTailMatched && previousVisibleMessages.Count == 1);
+        var weakOnlyVisualPreviousOverlap = CountWeakOnlyMatches(
+            weakVisualPreviousMatches,
+            strongVisualPreviousMatches);
         var layoutHasStabilized = !_layoutTransitionActive ||
                                   _layoutStableObservationCount >= _options.LayoutStableObservations;
         if (identityMismatch &&
@@ -272,10 +274,10 @@ public sealed class MessageObserver : IMessageObserver
             {
                 Decision = ConversationIdentityDecision.LayoutTransition,
                 PreviousVisibleStrongOverlap = strongVisualPreviousMatches.Count,
-                PreviousVisibleWeakOverlap = weakVisualPreviousMatches.Count,
+                PreviousVisibleWeakOverlap = weakOnlyVisualPreviousOverlap,
                 VisibleCandidates = candidates.Length,
                 LiveTailStrongMatch = false,
-                LiveTailWeakMatch = weakVisualLiveTailMatched,
+                LiveTailWeakMatch = weakVisualLiveTailMatched && !strongVisualLiveTailMatched,
             };
             return Result(
                 frameChanged: true,
@@ -300,6 +302,7 @@ public sealed class MessageObserver : IMessageObserver
             candidate.Ocr = await _ocrEngine.RecognizeAsync(
                 new ImageCrop(frame, candidate.Bubble.Bounds),
                 cancellationToken).ConfigureAwait(false);
+            candidate.HasIndependentOcrEvidence = true;
             ocrTimer.Stop();
             ocrDuration += ocrTimer.Elapsed;
             _ocrCalls++;
@@ -329,15 +332,16 @@ public sealed class MessageObserver : IMessageObserver
         var trustedTextLiveTailMatched = trustedTextPreviousMatches.Any(match =>
             string.Equals(previousVisibleMessages[match.Left].Id, _liveTailId, StringComparison.Ordinal));
         var strongVisualLiveTailHasOrderedContinuity = strongVisualLiveTailMatched &&
-                                                       (strongVisualPreviousMatches.Count >= 2 ||
-                                                        previousVisibleMessages.Count == 1);
+                                                       strongVisualPreviousMatches.Count >= 2;
         var liveTailStrongMatched = trustedTextLiveTailMatched || strongVisualLiveTailHasOrderedContinuity;
         var hasStrongPreviousVisibleContinuity =
             strongPreviousMatches.Count >= 2 ||
-            (previousVisibleMessages.Count > 0 &&
-             strongPreviousMatches.Count == previousVisibleMessages.Count) ||
             liveTailStrongMatched ||
-            (_layoutTransitionActive && strongPreviousMatches.Count >= 1);
+            (_layoutTransitionActive && trustedTextPreviousMatches.Count >= 1);
+        var weakOnlyPreviousOverlap = CountWeakOnlyMatches(
+            weakVisualPreviousMatches,
+            strongPreviousMatches);
+        var liveTailWeakMatched = weakVisualLiveTailMatched && !liveTailStrongMatched;
         var previousVisibleIds = previousVisibleMessages
             .Select(message => message.Id)
             .ToHashSet(StringComparer.Ordinal);
@@ -355,10 +359,10 @@ public sealed class MessageObserver : IMessageObserver
                 {
                     Decision = ConversationIdentityDecision.RebaseSameConversation,
                     PreviousVisibleStrongOverlap = strongPreviousMatches.Count,
-                    PreviousVisibleWeakOverlap = weakVisualPreviousMatches.Count,
+                    PreviousVisibleWeakOverlap = weakOnlyPreviousOverlap,
                     TrustedTextOverlap = trustedTextPreviousMatches.Count,
                     LiveTailStrongMatch = liveTailStrongMatched,
-                    LiveTailWeakMatch = weakVisualLiveTailMatched,
+                    LiveTailWeakMatch = liveTailWeakMatched,
                     HistoryOnlyMatches = historyOnlyMatches,
                     VisibleCandidates = candidates.Length,
                 };
@@ -396,10 +400,10 @@ public sealed class MessageObserver : IMessageObserver
                     {
                         Decision = ConversationIdentityDecision.PendingSwitch,
                         PreviousVisibleStrongOverlap = strongPreviousMatches.Count,
-                        PreviousVisibleWeakOverlap = weakVisualPreviousMatches.Count,
+                        PreviousVisibleWeakOverlap = weakOnlyPreviousOverlap,
                         TrustedTextOverlap = trustedTextPreviousMatches.Count,
                         LiveTailStrongMatch = liveTailStrongMatched,
-                        LiveTailWeakMatch = weakVisualLiveTailMatched,
+                        LiveTailWeakMatch = liveTailWeakMatched,
                         HistoryOnlyMatches = historyOnlyMatches,
                         VisibleCandidates = candidates.Length,
                         PendingObservations = observations,
@@ -427,10 +431,10 @@ public sealed class MessageObserver : IMessageObserver
                 {
                     Decision = ConversationIdentityDecision.ConfirmedSwitch,
                     PreviousVisibleStrongOverlap = strongPreviousMatches.Count,
-                    PreviousVisibleWeakOverlap = weakVisualPreviousMatches.Count,
+                    PreviousVisibleWeakOverlap = weakOnlyPreviousOverlap,
                     TrustedTextOverlap = trustedTextPreviousMatches.Count,
                     LiveTailStrongMatch = liveTailStrongMatched,
-                    LiveTailWeakMatch = weakVisualLiveTailMatched,
+                    LiveTailWeakMatch = liveTailWeakMatched,
                     HistoryOnlyMatches = historyOnlyMatches,
                     VisibleCandidates = candidates.Length,
                     PendingObservations = observations,
@@ -587,6 +591,14 @@ public sealed class MessageObserver : IMessageObserver
             .ToArray();
     }
 
+    private static int CountWeakOnlyMatches(
+        IReadOnlyList<(int Left, int Right)> weakMatches,
+        IReadOnlyList<(int Left, int Right)> strongMatches)
+    {
+        var strongPairs = strongMatches.ToHashSet();
+        return weakMatches.Count(match => !strongPairs.Contains(match));
+    }
+
     private bool CandidateVisuallyMatches(ObservedMessage message, VisibleCandidate candidate) =>
         message.Side == candidate.Bubble.Side &&
         VisualFingerprintsMatch(message.VisualFingerprint, candidate.VisualFingerprint);
@@ -598,6 +610,7 @@ public sealed class MessageObserver : IMessageObserver
     private static bool CandidateTrustedTextMatches(ObservedMessage message, VisibleCandidate candidate) =>
         message.Side == candidate.Bubble.Side &&
         message.IsTrustedForSemantics &&
+        candidate.HasIndependentOcrEvidence &&
         candidate.Ocr is
         {
             Status: OcrTextStatus.Recognized,
@@ -647,6 +660,8 @@ public sealed class MessageObserver : IMessageObserver
         foreach (var (pendingIndex, candidateIndex) in pendingMatches)
         {
             candidates[candidateIndex].Ocr = _pendingSwitch.Candidates[pendingIndex].Ocr;
+            candidates[candidateIndex].HasIndependentOcrEvidence =
+                _pendingSwitch.Candidates[pendingIndex].HasIndependentOcrEvidence;
         }
     }
 
@@ -722,6 +737,8 @@ public sealed class MessageObserver : IMessageObserver
 
         public OcrResult? Ocr { get; set; }
 
+        public bool HasIndependentOcrEvidence { get; set; }
+
         public ObservedMessage? Message { get; set; }
     }
 
@@ -733,9 +750,14 @@ public sealed class MessageObserver : IMessageObserver
     private sealed record PendingCandidate(
         DetectedBubble Bubble,
         string VisualFingerprint,
-        OcrResult Ocr)
+        OcrResult Ocr,
+        bool HasIndependentOcrEvidence)
     {
         public static PendingCandidate From(VisibleCandidate candidate) =>
-            new(candidate.Bubble, candidate.VisualFingerprint, candidate.Ocr!);
+            new(
+                candidate.Bubble,
+                candidate.VisualFingerprint,
+                candidate.Ocr!,
+                candidate.HasIndependentOcrEvidence);
     }
 }

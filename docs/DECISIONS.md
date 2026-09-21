@@ -404,9 +404,11 @@ observer reconciles visible messages before deciding, rebases the accepted heade
 message continuity is strong, and requires three stable observations without strong
 continuity to confirm a switch. Strong identity continuity is scoped to the immediately
 previous visible snapshot and requires trusted normalized text plus side, or a stricter
-visual match with ordered continuity. Permissive perceptual matches and matches found
-only in older recent history remain weak evidence and cannot approve a rebase. A live
-tail match is strong only with trusted text or strict visual ordered continuity.
+visual threshold across at least two ordered matches. Permissive perceptual matches and
+matches found only in older recent history remain weak evidence and cannot approve a
+rebase. A live-tail match is strong only with independently observed trusted text or as
+part of the multi-message strict visual continuity. OCR reused from a visual match does
+not become independent trusted-text evidence.
 Dimension/ROI changes enter an explicit layout transition and cannot cause an immediate
 epoch change. The provider owns its opaque evidence and comparison thresholds so
 another identity implementation does not have to expose perceptual-hash internals to
