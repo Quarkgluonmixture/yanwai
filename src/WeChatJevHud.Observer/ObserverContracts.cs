@@ -43,7 +43,9 @@ public sealed record ObserverOptions(
     int PendingSwitchRequiredObservations = 3,
     int LayoutStableObservations = 2,
     int BubbleMaxHammingDistance = 20,
-    int BubbleMaxMeanLuminanceDifference = 8);
+    int BubbleMaxMeanLuminanceDifference = 8,
+    int BubbleStrongMaxHammingDistance = 8,
+    int BubbleStrongMaxMeanLuminanceDifference = 3);
 
 public sealed record ConversationIdentityComparison(
     bool IsMatch,
@@ -75,9 +77,13 @@ public sealed record ConversationIdentityObservation(
     ConversationIdentityDecision Decision,
     bool CandidateChanged,
     string ProviderDiagnostics,
-    int MessageOverlap,
+    int PreviousVisibleStrongOverlap,
+    int PreviousVisibleWeakOverlap,
+    int TrustedTextOverlap,
+    bool LiveTailStrongMatch,
+    bool LiveTailWeakMatch,
+    int HistoryOnlyMatches,
     int VisibleCandidates,
-    bool LiveTailMatched,
     int PendingObservations,
     int RequiredObservations,
     bool LayoutChanged);

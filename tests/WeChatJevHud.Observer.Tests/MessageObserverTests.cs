@@ -343,7 +343,7 @@ public sealed class MessageObserverTests
     }
 
     [Fact]
-    public async Task Changed_header_with_two_visible_matches_rebases_the_same_epoch()
+    public async Task Changed_header_with_two_strong_previous_visible_matches_rebases_the_same_epoch()
     {
         var first = Bubble(12, 55, 80, MessageSide.Remote);
         var second = Bubble(120, 95, 120, MessageSide.Self);
@@ -364,9 +364,169 @@ public sealed class MessageObserverTests
         Assert.Empty(rerendered.NewMessages);
         Assert.Equal(0, rerendered.Counters.ConversationSwitches);
         Assert.Equal(ConversationIdentityDecision.RebaseSameConversation, rerendered.Identity.Decision);
-        Assert.Equal(2, rerendered.Identity.MessageOverlap);
+        Assert.Equal(2, rerendered.Identity.PreviousVisibleStrongOverlap);
         Assert.Equal(1, rerendered.Counters.IdentityRebases);
         Assert.Equal(2, ocr.Calls);
+    }
+
+    [Fact]
+    public async Task Different_conversation_with_two_weak_visual_matches_enters_pending_switch()
+    {
+        var first = Bubble(12, 55, 80, MessageSide.Remote);
+        var second = Bubble(120, 95, 100, MessageSide.Self);
+        var detector = new StubBubbleDetector([first, second], [first, second]);
+        var ocr = new StubOcrEngine(
+            Ocr("chat-a-first"),
+            Ocr("chat-a-second"),
+            Ocr("chat-b-first"),
+            Ocr("chat-b-second"));
+        var identity = new StubConversationIdentityProvider(Identity(1), Identity(2));
+        var observer = CreateObserver(detector, ocr, identityProvider: identity);
+
+        var baseline = await observer.ObserveAsync(
+            Frame(10, [(first.Bounds, (byte)80), (second.Bounds, (byte)100)]),
+            CancellationToken.None);
+        var candidate = await observer.ObserveAsync(
+            Frame(30, [(first.Bounds, (byte)86), (second.Bounds, (byte)106)]),
+            CancellationToken.None);
+
+        Assert.Equal(baseline.Epoch.Id, candidate.Epoch.Id);
+        Assert.Equal(ConversationIdentityDecision.PendingSwitch, candidate.Identity.Decision);
+        Assert.Equal(1, candidate.Identity.PendingObservations);
+        Assert.Empty(candidate.MessagesObserved);
+        Assert.Empty(candidate.NewMessages);
+        Assert.Equal(0, candidate.Identity.PreviousVisibleStrongOverlap);
+        Assert.Equal(2, candidate.Identity.PreviousVisibleWeakOverlap);
+        Assert.Equal(0, candidate.Identity.TrustedTextOverlap);
+        Assert.False(candidate.Identity.LiveTailStrongMatch);
+        Assert.True(candidate.Identity.LiveTailWeakMatch);
+        Assert.Equal(4, ocr.Calls);
+    }
+
+    [Fact]
+    public async Task Trusted_text_overlap_on_previous_visible_messages_is_strong_continuity()
+    {
+        var first = Bubble(12, 55, 80, MessageSide.Remote);
+        var second = Bubble(120, 95, 100, MessageSide.Self);
+        var detector = new StubBubbleDetector([first, second], [first, second]);
+        var ocr = new StubOcrEngine(
+            Ocr("stable-first"),
+            Ocr("stable-second"),
+            Ocr("stable-first"),
+            Ocr("stable-second"));
+        var identity = new StubConversationIdentityProvider(Identity(1), Identity(2));
+        var observer = CreateObserver(detector, ocr, identityProvider: identity);
+
+        var baseline = await observer.ObserveAsync(
+            Frame(10, [(first.Bounds, (byte)80), (second.Bounds, (byte)100)]),
+            CancellationToken.None);
+        var rerendered = await observer.ObserveAsync(
+            Frame(30, [(first.Bounds, (byte)86), (second.Bounds, (byte)106)]),
+            CancellationToken.None);
+
+        Assert.Equal(baseline.Epoch.Id, rerendered.Epoch.Id);
+        Assert.Equal(ConversationIdentityDecision.RebaseSameConversation, rerendered.Identity.Decision);
+        Assert.Equal(2, rerendered.Identity.PreviousVisibleStrongOverlap);
+        Assert.Equal(2, rerendered.Identity.PreviousVisibleWeakOverlap);
+        Assert.Equal(2, rerendered.Identity.TrustedTextOverlap);
+        Assert.True(rerendered.Identity.LiveTailStrongMatch);
+        Assert.Empty(rerendered.NewMessages);
+        Assert.Equal(4, ocr.Calls);
+    }
+
+    [Fact]
+    public async Task Low_confidence_text_overlap_is_not_strong_continuity()
+    {
+        var bubble = Bubble(12, 60, 80, MessageSide.Remote);
+        var detector = new StubBubbleDetector([bubble], [bubble]);
+        var ocr = new StubOcrEngine(
+            new OcrResult("same-text", 0.45, OcrTextStatus.LowConfidence, "same-text"),
+            Ocr("same-text"));
+        var identity = new StubConversationIdentityProvider(Identity(1), Identity(2));
+        var observer = CreateObserver(detector, ocr, identityProvider: identity);
+
+        await observer.ObserveAsync(
+            Frame(10, [(bubble.Bounds, (byte)80)]),
+            CancellationToken.None);
+        var candidate = await observer.ObserveAsync(
+            Frame(30, [(bubble.Bounds, (byte)86)]),
+            CancellationToken.None);
+
+        Assert.Equal(ConversationIdentityDecision.PendingSwitch, candidate.Identity.Decision);
+        Assert.Equal(0, candidate.Identity.TrustedTextOverlap);
+        Assert.False(candidate.Identity.LiveTailStrongMatch);
+        Assert.True(candidate.Identity.LiveTailWeakMatch);
+    }
+
+    [Fact]
+    public async Task Weak_history_only_matches_do_not_prevent_one_confirmed_switch()
+    {
+        var history = new[]
+        {
+            Bubble(12, 45, 60, MessageSide.Remote),
+            Bubble(120, 80, 80, MessageSide.Self),
+            Bubble(12, 115, 100, MessageSide.Remote),
+        };
+        var previousVisible = new[]
+        {
+            Bubble(12, 55, 150, MessageSide.Remote),
+            Bubble(120, 100, 170, MessageSide.Self),
+        };
+        var chatB = new[]
+        {
+            Bubble(12, 45, 66, MessageSide.Remote),
+            Bubble(120, 80, 86, MessageSide.Self),
+            Bubble(12, 115, 106, MessageSide.Remote),
+        };
+        var detector = new StubBubbleDetector(
+            history,
+            previousVisible,
+            chatB,
+            chatB,
+            chatB,
+            chatB);
+        var ocr = new StubOcrEngine(
+            Ocr("old-history-1"), Ocr("old-history-2"), Ocr("old-history-3"),
+            Ocr("previous-1"), Ocr("previous-2"),
+            Ocr("chat-b-1"), Ocr("chat-b-2"), Ocr("chat-b-3"));
+        var identity = new StubConversationIdentityProvider(
+            Identity(1), Identity(1),
+            Identity(2), Identity(2), Identity(2), Identity(2));
+        var observer = CreateObserver(detector, ocr, identityProvider: identity);
+
+        await observer.ObserveAsync(
+            Frame(10, history.Select((bubble, index) => (bubble.Bounds, (byte)(60 + (index * 20)))).ToArray()),
+            CancellationToken.None);
+        await observer.ObserveAsync(
+            Frame(10, [(previousVisible[0].Bounds, (byte)150), (previousVisible[1].Bounds, (byte)170)]),
+            CancellationToken.None);
+        var pendingOne = await observer.ObserveAsync(
+            Frame(30, [(chatB[0].Bounds, (byte)66), (chatB[1].Bounds, (byte)86), (chatB[2].Bounds, (byte)106)]),
+            CancellationToken.None);
+        var pendingTwo = await observer.ObserveAsync(
+            Frame(30, [(chatB[0].Bounds, (byte)66), (chatB[1].Bounds, (byte)86), (chatB[2].Bounds, (byte)106)]),
+            CancellationToken.None);
+        var switched = await observer.ObserveAsync(
+            Frame(30, [(chatB[0].Bounds, (byte)66), (chatB[1].Bounds, (byte)86), (chatB[2].Bounds, (byte)106)]),
+            CancellationToken.None);
+        var stable = await observer.ObserveAsync(
+            Frame(30, [(chatB[0].Bounds, (byte)66), (chatB[1].Bounds, (byte)86), (chatB[2].Bounds, (byte)106)]),
+            CancellationToken.None);
+
+        Assert.Equal(ConversationIdentityDecision.PendingSwitch, pendingOne.Identity.Decision);
+        Assert.Equal(ConversationIdentityDecision.PendingSwitch, pendingTwo.Identity.Decision);
+        Assert.Equal(0, pendingOne.Identity.PreviousVisibleStrongOverlap);
+        Assert.Equal(0, pendingOne.Identity.PreviousVisibleWeakOverlap);
+        Assert.Equal(3, pendingOne.Identity.HistoryOnlyMatches);
+        Assert.Equal(ConversationIdentityDecision.ConfirmedSwitch, switched.Identity.Decision);
+        Assert.Equal(2, switched.Epoch.Id);
+        Assert.Equal(1, switched.Counters.ConversationSwitches);
+        Assert.Equal(1, switched.Counters.IdentitySwitchesConfirmed);
+        Assert.All(switched.MessagesObserved, message => Assert.Equal(MessageObservationKind.Bootstrap, message.Origin));
+        Assert.Empty(switched.NewMessages);
+        Assert.Equal(switched.Epoch.Id, stable.Epoch.Id);
+        Assert.Equal(1, stable.Counters.ConversationSwitches);
+        Assert.Equal(8, ocr.Calls);
     }
 
     [Fact]
@@ -387,10 +547,36 @@ public sealed class MessageObserverTests
 
         Assert.Equal(baseline.Epoch.Id, rerendered.Epoch.Id);
         Assert.Equal(ConversationIdentityDecision.RebaseSameConversation, rerendered.Identity.Decision);
-        Assert.True(rerendered.Identity.LiveTailMatched);
-        Assert.Equal(1, rerendered.Identity.MessageOverlap);
+        Assert.True(rerendered.Identity.LiveTailStrongMatch);
+        Assert.Equal(1, rerendered.Identity.PreviousVisibleStrongOverlap);
         Assert.Empty(rerendered.NewMessages);
         Assert.Equal(1, ocr.Calls);
+    }
+
+    [Fact]
+    public async Task Weak_visual_match_to_old_live_tail_is_not_strong_continuity()
+    {
+        var tail = Bubble(12, 60, 80, MessageSide.Remote);
+        var detector = new StubBubbleDetector([tail], [tail]);
+        var ocr = new StubOcrEngine(Ocr("chat-a-tail"), Ocr("chat-b-message"));
+        var identity = new StubConversationIdentityProvider(Identity(1), Identity(2));
+        var observer = CreateObserver(detector, ocr, identityProvider: identity);
+
+        await observer.ObserveAsync(
+            Frame(10, [(tail.Bounds, (byte)80)]),
+            CancellationToken.None);
+        var candidate = await observer.ObserveAsync(
+            Frame(30, [(tail.Bounds, (byte)86)]),
+            CancellationToken.None);
+
+        Assert.Equal(ConversationIdentityDecision.PendingSwitch, candidate.Identity.Decision);
+        Assert.Equal(0, candidate.Identity.PreviousVisibleStrongOverlap);
+        Assert.Equal(1, candidate.Identity.PreviousVisibleWeakOverlap);
+        Assert.False(candidate.Identity.LiveTailStrongMatch);
+        Assert.True(candidate.Identity.LiveTailWeakMatch);
+        Assert.Equal(1, candidate.Identity.PendingObservations);
+        Assert.Equal(1, candidate.Epoch.Id);
+        Assert.Equal(2, ocr.Calls);
     }
 
     [Fact]
@@ -410,18 +596,31 @@ public sealed class MessageObserverTests
         observer.ConversationChanged += (_, args) => epochs.Add(args.CurrentEpoch.Id);
 
         await observer.ObserveAsync(Frame(10, [(chatA.Bounds, (byte)80)]), CancellationToken.None);
-        await observer.ObserveAsync(Frame(30, [(chatB.Bounds, (byte)120)]), CancellationToken.None);
-        await observer.ObserveAsync(Frame(30, [(chatB.Bounds, (byte)120)]), CancellationToken.None);
+        var toBPendingOne = await observer.ObserveAsync(
+            Frame(30, [(chatB.Bounds, (byte)120)]),
+            CancellationToken.None);
+        var toBPendingTwo = await observer.ObserveAsync(
+            Frame(30, [(chatB.Bounds, (byte)120)]),
+            CancellationToken.None);
         var switchedToB = await observer.ObserveAsync(
             Frame(30, [(chatB.Bounds, (byte)120)]),
             CancellationToken.None);
-        await observer.ObserveAsync(Frame(10, [(chatA.Bounds, (byte)80)]), CancellationToken.None);
-        await observer.ObserveAsync(Frame(10, [(chatA.Bounds, (byte)80)]), CancellationToken.None);
+        var toAPendingOne = await observer.ObserveAsync(
+            Frame(10, [(chatA.Bounds, (byte)80)]),
+            CancellationToken.None);
+        var toAPendingTwo = await observer.ObserveAsync(
+            Frame(10, [(chatA.Bounds, (byte)80)]),
+            CancellationToken.None);
         var switchedBack = await observer.ObserveAsync(
             Frame(10, [(chatA.Bounds, (byte)80)]),
             CancellationToken.None);
 
+        Assert.Equal(ConversationIdentityDecision.PendingSwitch, toBPendingOne.Identity.Decision);
+        Assert.Equal(ConversationIdentityDecision.PendingSwitch, toBPendingTwo.Identity.Decision);
+        Assert.Equal(ConversationIdentityDecision.ConfirmedSwitch, switchedToB.Identity.Decision);
         Assert.Equal(2, switchedToB.Epoch.Id);
+        Assert.Equal(ConversationIdentityDecision.PendingSwitch, toAPendingOne.Identity.Decision);
+        Assert.Equal(ConversationIdentityDecision.PendingSwitch, toAPendingTwo.Identity.Decision);
         Assert.Equal(3, switchedBack.Epoch.Id);
         Assert.Equal(ConversationIdentityDecision.ConfirmedSwitch, switchedBack.Identity.Decision);
         var bootstrap = Assert.Single(switchedBack.MessagesObserved);
@@ -486,8 +685,8 @@ public sealed class MessageObserverTests
 
         Assert.Equal(baseline.Epoch.Id, settled.Epoch.Id);
         Assert.Equal(ConversationIdentityDecision.RebaseSameConversation, settled.Identity.Decision);
-        Assert.Equal(1, settled.Identity.MessageOverlap);
-        Assert.False(settled.Identity.LiveTailMatched);
+        Assert.Equal(1, settled.Identity.PreviousVisibleStrongOverlap);
+        Assert.False(settled.Identity.LiveTailStrongMatch);
         Assert.Equal(0, settled.Counters.ConversationSwitches);
         Assert.Equal(2, ocr.Calls);
     }
@@ -603,6 +802,48 @@ public sealed class MessageObserverTests
         Assert.Equal(0, widened.Counters.ConversationSwitches);
         Assert.Equal(2, widened.Counters.LayoutTransitions);
         Assert.Equal(1, ocr.Calls);
+    }
+
+    [Fact]
+    public async Task Resize_with_six_previous_visible_messages_rebases_the_same_epoch()
+    {
+        var baselineBubbles = Enumerable.Range(0, 6)
+            .Select(index => new DetectedBubble(
+                new CapturePixelRect(index % 2 == 0 ? 12 : 120, 45 + (index * 22), 40, 18),
+                index % 2 == 0 ? MessageSide.Remote : MessageSide.Self,
+                0.95))
+            .ToArray();
+        var resizedBubbles = baselineBubbles
+            .Select(bubble => new DetectedBubble(
+                new CapturePixelRect(
+                    bubble.Bounds.X * 3 / 2,
+                    bubble.Bounds.Y * 3 / 2,
+                    bubble.Bounds.Width * 3 / 2,
+                    bubble.Bounds.Height * 3 / 2),
+                bubble.Side,
+                bubble.DetectionScore))
+            .ToArray();
+        var pixelValues = new byte[] { 50, 70, 90, 110, 130, 150 };
+        var detector = new StubBubbleDetector(baselineBubbles, resizedBubbles);
+        var ocr = new StubOcrEngine(pixelValues.Select((_, index) => Ocr($"message-{index + 1}")).ToArray());
+        var identity = new StubConversationIdentityProvider(Identity(1), Identity(2));
+        var observer = CreateObserver(detector, ocr, identityProvider: identity);
+
+        var baseline = await observer.ObserveAsync(
+            Frame(200, 200, 10, baselineBubbles.Select((bubble, index) => (bubble.Bounds, pixelValues[index])).ToArray()),
+            CancellationToken.None);
+        var resized = await observer.ObserveAsync(
+            Frame(300, 300, 30, resizedBubbles.Select((bubble, index) => (bubble.Bounds, pixelValues[index])).ToArray()),
+            CancellationToken.None);
+
+        Assert.Equal(baseline.Epoch.Id, resized.Epoch.Id);
+        Assert.Equal(ConversationIdentityDecision.RebaseSameConversation, resized.Identity.Decision);
+        Assert.Equal(6, resized.Identity.PreviousVisibleStrongOverlap);
+        Assert.Equal(6, resized.Identity.PreviousVisibleWeakOverlap);
+        Assert.True(resized.Identity.LiveTailStrongMatch);
+        Assert.Empty(resized.NewMessages);
+        Assert.Equal(6, ocr.Calls);
+        Assert.Equal(0, resized.Counters.ConversationSwitches);
     }
 
     [Fact]

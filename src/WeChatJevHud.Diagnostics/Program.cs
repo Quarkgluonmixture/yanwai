@@ -474,10 +474,14 @@ static void PrintIdentityObservation(ConversationIdentityObservation identity)
         return;
     }
 
-    var overlap = $"message_overlap={identity.MessageOverlap}/{identity.VisibleCandidates}";
     var evidence =
         $"identity_evidence=\"{identity.ProviderDiagnostics}\" " +
-        $"{overlap} live_tail_match={identity.LiveTailMatched.ToString().ToLowerInvariant()}";
+        $"previous_visible_strong_overlap={identity.PreviousVisibleStrongOverlap}/{identity.VisibleCandidates} " +
+        $"previous_visible_weak_overlap={identity.PreviousVisibleWeakOverlap}/{identity.VisibleCandidates} " +
+        $"trusted_text_overlap={identity.TrustedTextOverlap} " +
+        $"live_tail_strong_match={identity.LiveTailStrongMatch.ToString().ToLowerInvariant()} " +
+        $"live_tail_weak_match={identity.LiveTailWeakMatch.ToString().ToLowerInvariant()} " +
+        $"history_only_matches={identity.HistoryOnlyMatches}";
     switch (identity.Decision)
     {
         case ConversationIdentityDecision.RebaseSameConversation:

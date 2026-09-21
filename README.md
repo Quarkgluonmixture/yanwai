@@ -109,7 +109,10 @@ It captures in memory only, establishes the visible messages as a bootstrap base
 then reports conversation epochs, evidence-based identity decisions, new-message
 events, duplicate suppression, counters, and per-stage timings. Header identity uses a
 scale-tolerant perceptual comparison plus visible-message continuity and a three-frame
-switch confirmation; resize/DPI layout transitions cannot immediately change epochs.
+switch confirmation. Only strong continuity against the immediately previous visible
+snapshot can rebase a changed header; permissive visual/history matches are diagnostic
+evidence and cannot suppress a real switch. Resize/DPI layout transitions cannot
+immediately change epochs.
 Chat text is redacted by default. For an explicitly opted-in, truncated normalized-text
 diagnostic:
 

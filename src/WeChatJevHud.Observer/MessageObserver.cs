@@ -63,7 +63,11 @@ public sealed class MessageObserver : IMessageObserver
         if (_options.PendingSwitchRequiredObservations < 2 ||
             _options.LayoutStableObservations < 1 ||
             _options.BubbleMaxHammingDistance is < 0 or > 128 ||
-            _options.BubbleMaxMeanLuminanceDifference is < 0 or > 255)
+            _options.BubbleMaxMeanLuminanceDifference is < 0 or > 255 ||
+            _options.BubbleStrongMaxHammingDistance is < 0 or > 128 ||
+            _options.BubbleStrongMaxMeanLuminanceDifference is < 0 or > 255 ||
+            _options.BubbleStrongMaxHammingDistance > _options.BubbleMaxHammingDistance ||
+            _options.BubbleStrongMaxMeanLuminanceDifference > _options.BubbleMaxMeanLuminanceDifference)
         {
             throw new ArgumentOutOfRangeException(nameof(options), "Conversation identity options are outside their valid ranges.");
         }
@@ -164,7 +168,11 @@ public sealed class MessageObserver : IMessageObserver
             identityDistance.Diagnostics,
             0,
             0,
-            LiveTailMatched: false,
+            0,
+            LiveTailStrongMatch: false,
+            LiveTailWeakMatch: false,
+            HistoryOnlyMatches: 0,
+            VisibleCandidates: 0,
             PendingObservations: 0,
             _options.PendingSwitchRequiredObservations,
             layoutChanged);
@@ -207,29 +215,55 @@ public sealed class MessageObserver : IMessageObserver
                 bubble,
                 PixelFingerprint.ComputePerceptual(frame, bubble.Bounds).Signature))
             .ToArray();
-        var primaryMatches = _baselineEstablished
+        var previousVisibleMessages = PreviousVisibleMessages();
+        var weakHistoryMatches = _baselineEstablished && !identityMismatch
             ? SequenceAlignment.Align(
                 _messages.Count,
                 candidates.Length,
                 (message, candidate) =>
                     CandidateVisuallyMatches(_messages[message], candidates[candidate]))
             : [];
-        foreach (var (messageIndex, candidateIndex) in primaryMatches)
+        var strongVisualPreviousMatches = _baselineEstablished
+            ? SequenceAlignment.Align(
+                previousVisibleMessages.Count,
+                candidates.Length,
+                (message, candidate) =>
+                    CandidateStronglyVisuallyMatches(previousVisibleMessages[message], candidates[candidate]))
+            : [];
+        var weakVisualPreviousMatches = _baselineEstablished
+            ? SequenceAlignment.Align(
+                previousVisibleMessages.Count,
+                candidates.Length,
+                (message, candidate) =>
+                    CandidateVisuallyMatches(previousVisibleMessages[message], candidates[candidate]))
+            : [];
+        foreach (var (messageIndex, candidateIndex) in weakHistoryMatches)
         {
             candidates[candidateIndex].Ocr = OcrFrom(_messages[messageIndex]);
         }
 
+        foreach (var (messageIndex, candidateIndex) in strongVisualPreviousMatches)
+        {
+            candidates[candidateIndex].Ocr = OcrFrom(previousVisibleMessages[messageIndex]);
+        }
+
         HydrateFromPendingSwitch(candidates, identity);
 
-        var primaryLiveTailMatched = primaryMatches.Any(match =>
-            string.Equals(_messages[match.Left].Id, _liveTailId, StringComparison.Ordinal));
+        var strongVisualLiveTailMatched = strongVisualPreviousMatches.Any(match =>
+            string.Equals(previousVisibleMessages[match.Left].Id, _liveTailId, StringComparison.Ordinal));
+        var weakVisualLiveTailMatched = weakVisualPreviousMatches.Any(match =>
+            string.Equals(previousVisibleMessages[match.Left].Id, _liveTailId, StringComparison.Ordinal));
+        var hasStrongVisualContinuity =
+            strongVisualPreviousMatches.Count >= 2 ||
+            (previousVisibleMessages.Count > 0 &&
+             strongVisualPreviousMatches.Count == previousVisibleMessages.Count) ||
+            (strongVisualLiveTailMatched && previousVisibleMessages.Count == 1);
         var layoutHasStabilized = !_layoutTransitionActive ||
                                   _layoutStableObservationCount >= _options.LayoutStableObservations;
         if (identityMismatch &&
             _layoutTransitionActive &&
             !layoutHasStabilized &&
-            primaryMatches.Count < 2 &&
-            !primaryLiveTailMatched)
+            !hasStrongVisualContinuity)
         {
             _identitySwitchesSuppressed++;
             _lastFrameFingerprint = frameFingerprint;
@@ -237,9 +271,11 @@ public sealed class MessageObserver : IMessageObserver
             identityObservation = identityObservation with
             {
                 Decision = ConversationIdentityDecision.LayoutTransition,
-                MessageOverlap = primaryMatches.Count,
+                PreviousVisibleStrongOverlap = strongVisualPreviousMatches.Count,
+                PreviousVisibleWeakOverlap = weakVisualPreviousMatches.Count,
                 VisibleCandidates = candidates.Length,
-                LiveTailMatched = primaryLiveTailMatched,
+                LiveTailStrongMatch = false,
+                LiveTailWeakMatch = weakVisualLiveTailMatched,
             };
             return Result(
                 frameChanged: true,
@@ -276,11 +312,40 @@ public sealed class MessageObserver : IMessageObserver
                 candidates.Length,
                 (message, candidate) => CandidateMatches(_messages[message], candidates[candidate]))
             : [];
-        var liveTailMatched = matches.Any(match =>
-            string.Equals(_messages[match.Left].Id, _liveTailId, StringComparison.Ordinal));
+        var trustedTextPreviousMatches = _baselineEstablished
+            ? SequenceAlignment.Align(
+                previousVisibleMessages.Count,
+                candidates.Length,
+                (message, candidate) =>
+                    CandidateTrustedTextMatches(previousVisibleMessages[message], candidates[candidate]))
+            : [];
+        var strongPreviousMatches = _baselineEstablished
+            ? SequenceAlignment.Align(
+                previousVisibleMessages.Count,
+                candidates.Length,
+                (message, candidate) =>
+                    CandidateStronglyMatches(previousVisibleMessages[message], candidates[candidate]))
+            : [];
+        var trustedTextLiveTailMatched = trustedTextPreviousMatches.Any(match =>
+            string.Equals(previousVisibleMessages[match.Left].Id, _liveTailId, StringComparison.Ordinal));
+        var strongVisualLiveTailHasOrderedContinuity = strongVisualLiveTailMatched &&
+                                                       (strongVisualPreviousMatches.Count >= 2 ||
+                                                        previousVisibleMessages.Count == 1);
+        var liveTailStrongMatched = trustedTextLiveTailMatched || strongVisualLiveTailHasOrderedContinuity;
+        var hasStrongPreviousVisibleContinuity =
+            strongPreviousMatches.Count >= 2 ||
+            (previousVisibleMessages.Count > 0 &&
+             strongPreviousMatches.Count == previousVisibleMessages.Count) ||
+            liveTailStrongMatched ||
+            (_layoutTransitionActive && strongPreviousMatches.Count >= 1);
+        var previousVisibleIds = previousVisibleMessages
+            .Select(message => message.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        var historyOnlyMatches = matches.Count(match =>
+            !previousVisibleIds.Contains(_messages[match.Left].Id));
         if (identityMismatch)
         {
-            if (matches.Count >= 2 || liveTailMatched || (_layoutTransitionActive && matches.Count >= 1))
+            if (hasStrongPreviousVisibleContinuity)
             {
                 _epoch = _epoch! with { VisualIdentity = identity };
                 _pendingSwitch = null;
@@ -289,9 +354,13 @@ public sealed class MessageObserver : IMessageObserver
                 identityObservation = identityObservation with
                 {
                     Decision = ConversationIdentityDecision.RebaseSameConversation,
-                    MessageOverlap = matches.Count,
+                    PreviousVisibleStrongOverlap = strongPreviousMatches.Count,
+                    PreviousVisibleWeakOverlap = weakVisualPreviousMatches.Count,
+                    TrustedTextOverlap = trustedTextPreviousMatches.Count,
+                    LiveTailStrongMatch = liveTailStrongMatched,
+                    LiveTailWeakMatch = weakVisualLiveTailMatched,
+                    HistoryOnlyMatches = historyOnlyMatches,
                     VisibleCandidates = candidates.Length,
-                    LiveTailMatched = liveTailMatched,
                 };
             }
             else if (_layoutTransitionActive &&
@@ -326,9 +395,13 @@ public sealed class MessageObserver : IMessageObserver
                     identityObservation = identityObservation with
                     {
                         Decision = ConversationIdentityDecision.PendingSwitch,
-                        MessageOverlap = matches.Count,
+                        PreviousVisibleStrongOverlap = strongPreviousMatches.Count,
+                        PreviousVisibleWeakOverlap = weakVisualPreviousMatches.Count,
+                        TrustedTextOverlap = trustedTextPreviousMatches.Count,
+                        LiveTailStrongMatch = liveTailStrongMatched,
+                        LiveTailWeakMatch = weakVisualLiveTailMatched,
+                        HistoryOnlyMatches = historyOnlyMatches,
                         VisibleCandidates = candidates.Length,
-                        LiveTailMatched = liveTailMatched,
                         PendingObservations = observations,
                     };
                     reconcileTimer.Stop();
@@ -353,9 +426,13 @@ public sealed class MessageObserver : IMessageObserver
                 identityObservation = identityObservation with
                 {
                     Decision = ConversationIdentityDecision.ConfirmedSwitch,
-                    MessageOverlap = matches.Count,
+                    PreviousVisibleStrongOverlap = strongPreviousMatches.Count,
+                    PreviousVisibleWeakOverlap = weakVisualPreviousMatches.Count,
+                    TrustedTextOverlap = trustedTextPreviousMatches.Count,
+                    LiveTailStrongMatch = liveTailStrongMatched,
+                    LiveTailWeakMatch = weakVisualLiveTailMatched,
+                    HistoryOnlyMatches = historyOnlyMatches,
                     VisibleCandidates = candidates.Length,
-                    LiveTailMatched = liveTailMatched,
                     PendingObservations = observations,
                 };
                 matches = [];
@@ -500,9 +577,37 @@ public sealed class MessageObserver : IMessageObserver
     private static OcrResult OcrFrom(ObservedMessage message) =>
         new(message.NormalizedText, message.OcrConfidence, message.OcrStatus, message.RawText);
 
+    private IReadOnlyList<ObservedMessage> PreviousVisibleMessages()
+    {
+        var messagesById = _messages.ToDictionary(message => message.Id, StringComparer.Ordinal);
+        return _visibleMessages
+            .Select(snapshot => messagesById.GetValueOrDefault(snapshot.LogicalMessageId))
+            .Where(message => message is not null)
+            .Select(message => message!)
+            .ToArray();
+    }
+
     private bool CandidateVisuallyMatches(ObservedMessage message, VisibleCandidate candidate) =>
         message.Side == candidate.Bubble.Side &&
         VisualFingerprintsMatch(message.VisualFingerprint, candidate.VisualFingerprint);
+
+    private bool CandidateStronglyVisuallyMatches(ObservedMessage message, VisibleCandidate candidate) =>
+        message.Side == candidate.Bubble.Side &&
+        VisualFingerprintsStronglyMatch(message.VisualFingerprint, candidate.VisualFingerprint);
+
+    private static bool CandidateTrustedTextMatches(ObservedMessage message, VisibleCandidate candidate) =>
+        message.Side == candidate.Bubble.Side &&
+        message.IsTrustedForSemantics &&
+        candidate.Ocr is
+        {
+            Status: OcrTextStatus.Recognized,
+            Text.Length: > 0,
+        } ocr &&
+        string.Equals(message.NormalizedText, ocr.Text, StringComparison.Ordinal);
+
+    private bool CandidateStronglyMatches(ObservedMessage message, VisibleCandidate candidate) =>
+        CandidateStronglyVisuallyMatches(message, candidate) ||
+        CandidateTrustedTextMatches(message, candidate);
 
     private bool VisualFingerprintsMatch(string accepted, string candidate)
     {
@@ -511,6 +616,15 @@ public sealed class MessageObserver : IMessageObserver
             PerceptualFingerprint.Parse(candidate));
         return distance.HammingDistance <= _options.BubbleMaxHammingDistance &&
                distance.MeanLuminanceDifference <= _options.BubbleMaxMeanLuminanceDifference;
+    }
+
+    private bool VisualFingerprintsStronglyMatch(string accepted, string candidate)
+    {
+        var distance = PerceptualFingerprint.Distance(
+            PerceptualFingerprint.Parse(accepted),
+            PerceptualFingerprint.Parse(candidate));
+        return distance.HammingDistance <= _options.BubbleStrongMaxHammingDistance &&
+               distance.MeanLuminanceDifference <= _options.BubbleStrongMaxMeanLuminanceDifference;
     }
 
     private void HydrateFromPendingSwitch(

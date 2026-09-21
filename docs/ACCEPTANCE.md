@@ -255,7 +255,7 @@ remains unimplemented and must begin separately after this PR is merged.
 
 ## Phase 4 — New-message observer and conversation state
 
-**Status: FIX IMPLEMENTED — awaiting repeat manual acceptance on real WeChat.**
+**Status: SECOND IDENTITY FIX IMPLEMENTED — awaiting repeat manual acceptance on real WeChat.**
 
 ### Goal
 
@@ -289,8 +289,12 @@ Automated evidence:
 - message-count limits are configurable and enforced.
 - slight header rerendering, wider/narrower resize, simulated 150%/100% DPI scaling,
   and gradual multi-frame resize retain one epoch;
-- header mismatch with at least two visible matches or a live-tail match rebases the
-  accepted identity without repeated OCR;
+- six strict matches against the immediately previous visible snapshot survive resize
+  and rebase the accepted identity without repeated OCR;
+- trusted text plus side contributes strong previous-visible continuity;
+- two permissive visual matches in a different chat do not rebase;
+- two to four history-only perceptual matches do not prevent pending/confirmed switch;
+- a permissive visual match to the old live tail is weak and does not approve rebase;
 - a true low-overlap switch requires three stable observations, creates exactly one
   epoch, and bootstraps without replay;
 - remaining in the switched conversation does not increment the epoch again;
@@ -320,25 +324,38 @@ Blocking manual evidence from the first acceptance attempt:
 - the same conversation incorrectly advanced from epoch 3 through epoch 11;
 - the run ended with 10 conversation switches and 161 OCR calls;
 - the cause was exact raw header-pixel inequality committing a switch before visible
-  message reconciliation. The evidence-based/debounced identity fix above has not yet
-  been revalidated on the real machine.
+  message reconciliation.
+
+Blocking manual evidence from the second acceptance attempt:
+- same-chat resize and 150%/100% DPI moves remained in epoch 1;
+- strong same-chat continuity, including 6/6 overlap plus live-tail continuity, rebased
+  large header changes correctly;
+- scrolling and minimize/restore remained suppressed without crashes or replay;
+- deliberate switches to visibly different conversations incorrectly remained in
+  epoch 1 with `REBASE_SAME_CONVERSATION` decisions, including aggregate overlaps of
+  2/5, 4/7, and 3/4 without live-tail matches;
+- the cause was treating permissive perceptual matches against the entire 25-message
+  history as strong identity evidence. The second fix separates strong previous-visible
+  continuity from weak visual/history alignment and still needs real-machine validation.
 
 Manual exit gate:
 
 Run `.\scripts\observe.ps1 -DebugText` in a safe chat, then verify the identity fix:
 
-1. start in one conversation and record the epoch;
+1. start in chat A and record the epoch;
 2. resize WeChat narrower and wider several times;
 3. drag it from the 150% laptop display to the 100% external display and back while
-   remaining in the same conversation;
+   remaining in chat A;
 4. confirm the epoch stays unchanged, state remains intact, known messages do not
    repeatedly OCR/bootstrap, and no `NEW` replay appears;
-5. switch to another conversation and confirm exactly one epoch increment whose
-   visible messages are bootstrap with no old-state mixing;
-6. switch back and confirm exactly one further epoch increment with no replay storm;
-7. confirm diagnostics explain mismatches as rebase, layout suppression, pending
-   `1/3` and `2/3`, or one confirmed switch;
-8. repeat the original idle/new-message/repeated-`好`/scroll/minimize-restore checks.
+5. switch to chat B and confirm `PendingSwitch` -> exactly one `ConfirmedSwitch` ->
+   epoch +1; its visible messages bootstrap with no old-state mixing;
+6. remain in chat B and confirm no further epoch increment;
+7. switch back to chat A and confirm `PendingSwitch` -> exactly one
+   `ConfirmedSwitch` -> epoch +1 again, with no replay storm;
+8. confirm diagnostics separately report strong/weak previous-visible overlap, trusted
+   text overlap, strong/weak live-tail match, and history-only matches;
+9. repeat the original idle/new-message/repeated-`好`/scroll/minimize-restore checks.
 
 Do not mark Phase 4 PASS or begin Phase 5 until this workflow is manually accepted.
 

@@ -401,12 +401,17 @@ A replaceable visual chat-header evidence provider canonicalizes a stable header
 subregion and compares perceptual hashes by distance; the HWND title is never a
 conversation key. A header mismatch is only a possible conversation change. The
 observer reconciles visible messages before deciding, rebases the accepted header when
-message continuity is strong, and requires three stable low-overlap observations to
-confirm a switch. Dimension/ROI changes enter an explicit layout transition and cannot
-cause an immediate epoch change. The provider owns its opaque evidence and comparison
-thresholds so another identity implementation does not have to expose perceptual-hash
-internals to the observer. Recent state is bounded and memory-only. Only non-empty
-`Recognized` OCR is semantic-ready.
+message continuity is strong, and requires three stable observations without strong
+continuity to confirm a switch. Strong identity continuity is scoped to the immediately
+previous visible snapshot and requires trusted normalized text plus side, or a stricter
+visual match with ordered continuity. Permissive perceptual matches and matches found
+only in older recent history remain weak evidence and cannot approve a rebase. A live
+tail match is strong only with trusted text or strict visual ordered continuity.
+Dimension/ROI changes enter an explicit layout transition and cannot cause an immediate
+epoch change. The provider owns its opaque evidence and comparison thresholds so
+another identity implementation does not have to expose perceptual-hash internals to
+the observer. Recent state is bounded and memory-only. Only non-empty `Recognized` OCR
+is semantic-ready.
 
 **Scrolling policy**
 
@@ -437,4 +442,6 @@ state once, bootstraps the new visible view, and emits no old messages as live-n
 - Use the top-level WeChat HWND title as conversation identity.
 - Treat exact raw header-pixel hash inequality as an immediate conversation switch.
 - Confirm a switch from one mismatching frame.
+- Rebase from two permissive visual matches anywhere in recent history.
+- Treat a permissive perceptual match to the old live tail as strong continuity.
 - Persist screenshots or raw conversation history to support reconciliation.

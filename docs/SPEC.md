@@ -354,12 +354,17 @@ bounded mean-luminance delta. The default thresholds are explicit in
 identity-provider seam.
 
 A changed header is `PossibleConversationChange`, never an immediate epoch switch.
-The observer first reconciles visible bubbles. Two ordered matches, a matched live
-tail, or one match during a known layout transition is sufficient continuity to keep
-the epoch and rebase its accepted header evidence. With weak/no overlap, the same
-candidate must remain stable for three observations before a switch is confirmed.
-The first two observations remain pending and do not mutate the current conversation
-state or emit messages; pending OCR is reused. A confirmed switch clears the old state
+The observer first reconciles the candidate view specifically against the immediately
+previous visible-message snapshot. Strong continuity consists of ordered matches using
+trusted normalized OCR text plus side, or a separate strict visual threshold; a live
+tail is strong only when trusted text matches or strict visual identity has ordered
+continuity. The normal permissive perceptual threshold, dimensions/geometry, and
+matches found only in the bounded recent-history buffer are weak evidence. They may
+assist message reconciliation but cannot rebase a changed conversation identity.
+Without strong previous-visible continuity, the same candidate must remain stable for
+three observations before a switch is confirmed. The first two observations remain
+pending and do not mutate the current conversation state or emit messages; pending OCR
+is reused only within that candidate identity. A confirmed switch clears the old state
 exactly once and bootstraps the candidate view.
 
 Frame dimensions or chat-ROI changes start a layout transition. A transition requires
@@ -395,6 +400,11 @@ identity_switches_confirmed
 identity_switches_suppressed
 layout_transitions
 ```
+
+Each changed-identity diagnostic also separates
+`previous_visible_strong_overlap`, `previous_visible_weak_overlap`,
+`trusted_text_overlap`, `live_tail_strong_match`, `live_tail_weak_match`, and
+`history_only_matches`; no aggregate visual-overlap count is used as switch approval.
 
 and per-frame `frame_check_ms`, `change_detect_ms`, `bubble_detect_ms`, `ocr_ms`, and
 `observer_reconcile_ms`. Identical chat-ROI fingerprints skip bubble detection and OCR.
