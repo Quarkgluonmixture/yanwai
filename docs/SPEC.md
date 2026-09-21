@@ -70,6 +70,7 @@ src/
   WeChatJevHud.Capture/          # window/client frame capture
   WeChatJevHud.Vision/           # ROI, frame diff, bubble detection
   WeChatJevHud.Ocr/              # OCR abstraction + implementation(s)
+  WeChatJevHud.Observer/         # change detection, reconciliation, recent state
   WeChatJevHud.TypeSafe/         # Jev client and typed judgment mapping
   WeChatJevHud.Overlay/          # overlay layout/anchoring
 tests/
@@ -337,6 +338,42 @@ The exact interval should be measured rather than assumed. A starting range arou
 
 Scrolling must be treated differently from a genuinely new message where possible.
 
+Phase 4 exposes one stateful `IMessageObserver` seam. Capture supplies a valid frame;
+the observer owns chat-ROI fingerprinting, visual conversation epochs, bubble
+reconciliation, OCR scheduling, bounded recent state, counters, timings, and message
+events. Capture, ROI/bubble detection, OCR, and conversation identity remain injected
+adapters rather than state hidden in the capture loop.
+
+The first frame in an epoch is a bootstrap: visible bubbles may be OCRed to seed
+context, but they never produce `NewMessageObserved`. The top-level HWND title is not
+used. A replaceable visual header-signature provider starts a new epoch, clears the
+previous conversation state, and establishes a fresh bootstrap when the visible chat
+header changes.
+
+Visible bubble identity uses ordered sequence alignment over side plus visual crop
+fingerprint, with normalized OCR text as a secondary reconciliation signal after OCR
+is already necessary. Geometry is retained and updated but is not identity. This
+allows repeated identical messages to receive distinct logical IDs. A known live-tail
+anchor distinguishes appended suffixes from history discovered by scrolling; when
+there is insufficient overlap, the V0 policy suppresses conservatively instead of
+claiming an old history item is newly received.
+
+The observer reports:
+
+```text
+frames_checked
+unchanged_frames
+changed_frames
+bubble_detection_runs
+ocr_calls
+messages_emitted
+duplicates_suppressed
+conversation_switches
+```
+
+and per-frame `frame_check_ms`, `change_detect_ms`, `bubble_detect_ms`, `ocr_ms`, and
+`observer_reconcile_ms`. Identical chat-ROI fingerprints skip bubble detection and OCR.
+
 ---
 
 ## 10. OCR
@@ -435,6 +472,16 @@ Rules:
 - keep state ephemeral by default;
 - distinguish observed text from Jev inference;
 - invalidate/re-evaluate when underlying message text/context changes.
+
+Phase 4 keeps this state in a configurable in-memory buffer (25 messages and 8,000
+normalized characters by default). Each observed message retains logical ID, epoch,
+side, normalized and raw OCR text, OCR status/confidence, capture-relative bubble
+rectangle, first-observed time, bootstrap/history/live origin, visibility, and optional
+quote metadata. Nothing in this buffer is persisted by the observer.
+
+`IsTrustedForSemantics` is true only for non-empty `Recognized` OCR output.
+`LowConfidence`, `NoText`, and `Unsupported` messages may remain in observer state but
+must not be treated as semantic-ready by later phases.
 
 ---
 

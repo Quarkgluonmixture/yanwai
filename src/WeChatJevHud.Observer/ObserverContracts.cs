@@ -1,0 +1,116 @@
+using WeChatJevHud.Capture;
+using WeChatJevHud.Core.Geometry;
+using WeChatJevHud.Core.Messages;
+using WeChatJevHud.Ocr;
+
+namespace WeChatJevHud.Observer;
+
+public interface IMessageObserver
+{
+    event EventHandler<ConversationChangedEventArgs>? ConversationChanged;
+
+    event EventHandler<MessageObservedEventArgs>? MessageObserved;
+
+    event EventHandler<MessageObservedEventArgs>? NewMessageObserved;
+
+    RecentConversationSnapshot State { get; }
+
+    ObserverCounters Counters { get; }
+
+    Task<ObservationResult> ObserveAsync(CapturedFrame frame, CancellationToken cancellationToken);
+}
+
+public interface IChatRoiChangeDetector
+{
+    string ComputeFingerprint(CapturedFrame frame, CapturePixelRect chatRegion);
+}
+
+public interface IConversationIdentityProvider
+{
+    string GetVisualSignature(CapturedFrame frame, CapturePixelRect chatRegion);
+}
+
+public sealed record ObserverOptions(
+    int RecentMessageLimit = 25,
+    int RecentTextCharacterLimit = 8_000);
+
+public sealed record ConversationEpoch(long Id, string VisualSignature, DateTimeOffset StartedAt);
+
+public enum MessageObservationKind
+{
+    Bootstrap,
+    History,
+    LiveNew,
+}
+
+public sealed record ObservedMessage(
+    string Id,
+    long ConversationEpochId,
+    MessageSide Side,
+    string NormalizedText,
+    string RawText,
+    OcrTextStatus OcrStatus,
+    double? OcrConfidence,
+    CapturePixelRect BubbleRect,
+    DateTimeOffset FirstObservedAt,
+    MessageObservationKind Origin,
+    string VisualFingerprint,
+    bool IsVisible,
+    string? QuotedText = null,
+    CapturePixelRect? QuotedRegion = null)
+{
+    public bool IsTrustedForSemantics =>
+        OcrStatus == OcrTextStatus.Recognized &&
+        !string.IsNullOrWhiteSpace(NormalizedText);
+}
+
+public sealed record VisibleMessageSnapshot(
+    string LogicalMessageId,
+    MessageSide Side,
+    CapturePixelRect BubbleRect,
+    string VisualFingerprint);
+
+public sealed record RecentConversationSnapshot(
+    ConversationEpoch? Epoch,
+    IReadOnlyList<ObservedMessage> Messages,
+    IReadOnlyList<VisibleMessageSnapshot> VisibleMessages);
+
+public sealed record ObserverCounters(
+    long FramesChecked,
+    long UnchangedFrames,
+    long ChangedFrames,
+    long BubbleDetectionRuns,
+    long OcrCalls,
+    long MessagesEmitted,
+    long DuplicatesSuppressed,
+    long ConversationSwitches);
+
+public sealed record ObserverTimings(
+    TimeSpan FrameCheck,
+    TimeSpan ChangeDetect,
+    TimeSpan BubbleDetect,
+    TimeSpan Ocr,
+    TimeSpan ObserverReconcile);
+
+public sealed record ObservationResult(
+    ConversationEpoch Epoch,
+    bool FrameChanged,
+    IReadOnlyList<ObservedMessage> MessagesObserved,
+    IReadOnlyList<ObservedMessage> NewMessages,
+    IReadOnlyList<string> DuplicateMessageIds,
+    ObserverCounters Counters,
+    ObserverTimings Timings);
+
+public sealed class ConversationChangedEventArgs(
+    ConversationEpoch? previousEpoch,
+    ConversationEpoch currentEpoch) : EventArgs
+{
+    public ConversationEpoch? PreviousEpoch { get; } = previousEpoch;
+
+    public ConversationEpoch CurrentEpoch { get; } = currentEpoch;
+}
+
+public sealed class MessageObservedEventArgs(ObservedMessage message) : EventArgs
+{
+    public ObservedMessage Message { get; } = message;
+}

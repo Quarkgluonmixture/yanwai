@@ -1,7 +1,8 @@
 # WeChat × Jev Conversation HUD
 
-This checkout implements accepted Phases 0–3. It does not implement the new-message
-observer, Jev calls, or the HUD overlay.
+This checkout implements accepted Phases 0–3 and the Phase 4 message-observer
+candidate awaiting manual acceptance. It does not implement Jev calls or the HUD
+overlay.
 
 ## What is available
 
@@ -96,6 +97,26 @@ Jev probability. See the current
 [PaddleOCR Text Recognition documentation](https://www.paddleocr.ai/main/en/version3.x/module_usage/text_recognition.html)
 for the upstream API.
 
+### Phase 4 live message observer
+
+Run the observer against the Windows desktop WeChat session from PowerShell:
+
+```powershell
+.\scripts\observe.ps1
+```
+
+It captures in memory only, establishes the visible messages as a bootstrap baseline,
+then reports conversation epochs, new-message events, duplicate suppression, counters,
+and per-stage timings. Chat text is redacted by default. For an explicitly opted-in,
+truncated normalized-text diagnostic:
+
+```powershell
+.\scripts\observe.ps1 -DebugText
+```
+
+Use `-Seconds 30` for a bounded run or `-IntervalMilliseconds 200` to change the
+lightweight check interval. The observer never writes screenshots or chat logs.
+
 From WSL, invoke the same Windows scripts through interop, for example:
 
 ```bash
@@ -104,7 +125,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w scripts/di
 
 ## Secrets and later phases
 
-No TypeSafe/Jev code runs through Phase 3. The official TypeSafe skill is installed at `.agents/skills/typesafe-ai/`. Before Phase 5 implementation, the live-docs gate in `docs/ACCEPTANCE.md` still applies.
+No TypeSafe/Jev code runs through Phase 4. The official TypeSafe skill is installed at `.agents/skills/typesafe-ai/`. Before Phase 5 implementation, the live-docs gate in `docs/ACCEPTANCE.md` still applies.
 
 When Jev is implemented later, keep the key outside the repository, for example in the current Windows user's environment:
 

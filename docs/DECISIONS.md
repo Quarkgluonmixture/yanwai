@@ -384,3 +384,42 @@ CJK OCR artifacts measurable.
 - Call normalized equality an exact match.
 - Remove spaces adjacent to every Unicode punctuation character.
 - Discard raw engine output before evaluation.
+
+---
+
+## D-018 — Message observation uses epoch-scoped ordered reconciliation
+
+**Decision**
+
+Phase 4 places stateful observation behind `IMessageObserver`. It establishes a
+bootstrap baseline per visual conversation epoch, compares cheap chat-ROI fingerprints
+before bubble detection, and reconciles changed views with ordered sequence alignment.
+Logical identity combines message side, visual crop fingerprint, normalized OCR text
+when already available, and relative order. Geometry is updated state, not identity.
+
+A replaceable visual chat-header signature creates conversation epochs; the HWND title
+is never a conversation key. Recent state is bounded and memory-only. Only non-empty
+`Recognized` OCR is semantic-ready.
+
+**Scrolling policy**
+
+The observer remembers the chronological live tail. Bubbles discovered before or away
+from that anchor are conservative history, while unmatched suffixes after the known
+live tail are live-new. Insufficient-overlap cases are suppressed rather than risk
+replaying old history. Ordered alignment deliberately preserves separate occurrences
+of repeated equal text.
+
+**Reason**
+
+Screen Y changes during append, scroll, resize, and restore. A global side-plus-text
+set would collapse legitimate repeats, while coordinate identity would replay nearly
+everything after movement. Epoch-scoped sequence reconciliation retains identity
+without persistent chat logging.
+
+**Rejected alternatives**
+
+- Treat bubble Y coordinate as message identity.
+- Globally deduplicate by side plus text.
+- Emit every newly visible bubble after scrolling.
+- Use the top-level WeChat HWND title as conversation identity.
+- Persist screenshots or raw conversation history to support reconciliation.
