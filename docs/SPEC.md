@@ -517,6 +517,26 @@ OCR alone is insufficient. Any worker/protocol/device failure falls back to Adap
 without losing candidate text. This is an explicit replaceable policy, not a
 model-score threshold.
 
+Before any further Phase 4.5 production preprocessing or trust-policy change, run the
+private OCR input audit on matched 96-DPI and 144-DPI real bubble crops. Derive the text
+ROI conservatively from contrast against the bubble background, retain configurable
+safe padding, estimate the text-band height, and compare 32/40/48 px normalization with
+nearest, bicubic, Lanczos, and conservative grayscale/background variants. Use one
+recognizer instance for the complete comparison. Audit artifacts and reports stay
+under `.ocr-cache`; no audit variant becomes production behavior without separate
+evidence and review. Variant agreement is correlated preprocessing evidence, not
+independent-engine agreement.
+
+The completed input audit demonstrated no benefit over raw bubble crops. Production
+Paddle therefore continues to receive raw whole-bubble PNGs. Routing-only contrast
+analysis excludes components connected to the crop boundary (bubble corners/tail
+background). Estimated glyph height is the upper-quartile retained component height;
+maximum bridged gap is 12% of that height and minimum band height is 15%, each at least
+one pixel. These are explicit heuristics, not confidence. Crops with one retained
+band route to Paddle; other layouts and quoted regions remain Adaptive.
+Explicit routing diagnostics expose row counts, active states, background estimate,
+glyph scale, thresholds, band count and selected route without calling OCR.
+
 ---
 
 ## 11. Conversation state

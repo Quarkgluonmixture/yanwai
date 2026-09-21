@@ -22,6 +22,28 @@ public sealed class ScaleAwareOcrRoutingPolicyTests
         Assert.Equal(OcrRoute.Adaptive, new ScaleAwareOcrRoutingPolicy().SelectRoute(crop));
     }
 
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(1.5)]
+    public void BorderConnectedBubbleCornersDoNotBecomeTextBands(double scale)
+    {
+        var width = (int)(156 * scale);
+        var height = (int)(36 * scale);
+        var crop = SyntheticCrop(width, height, [((int)(13 * scale), (int)(23 * scale))]);
+        var pixels = crop.Frame.Bgra32Pixels;
+        for (var y = 0; y < height; y++)
+        {
+            var edge = y < 7 * scale || y >= height - 7 * scale ? (int)(6 * scale) : (int)(4 * scale);
+            for (var x = width - edge; x < width; x++)
+            {
+                var offset = y * width * 4 + x * 4;
+                pixels[offset] = pixels[offset + 1] = pixels[offset + 2] = 230;
+            }
+        }
+
+        Assert.Equal(OcrRoute.PaddleSingleLine, new ScaleAwareOcrRoutingPolicy().SelectRoute(crop));
+    }
+
     [Fact]
     public void RoutesSingleLineQuotedTextToAdaptive()
     {
@@ -29,6 +51,29 @@ public sealed class ScaleAwareOcrRoutingPolicyTests
         var quoted = main with { Role = OcrCropRole.QuotedText };
 
         Assert.Equal(OcrRoute.Adaptive, new ScaleAwareOcrRoutingPolicy().SelectRoute(quoted));
+    }
+
+    [Fact]
+    public void FinalTextBandWithOnePixelBottomPaddingIsNotDropped()
+    {
+        var crop = SyntheticCrop(240, 60, [(10, 25), (40, 58)]);
+        Assert.Equal(OcrRoute.Adaptive, new ScaleAwareOcrRoutingPolicy().SelectRoute(crop));
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(1.5)]
+    public void MultilineRemainsAdaptiveAndRoutingDoesNotModifyOcrPixels(double scale)
+    {
+        var crop = SyntheticCrop((int)(240 * scale), (int)(60 * scale),
+            [((int)(10 * scale), (int)(22 * scale)), ((int)(35 * scale), (int)(47 * scale))]);
+        var before = crop.Frame.Bgra32Pixels.ToArray();
+
+        var analysis = new ScaleAwareOcrRoutingPolicy().Analyze(crop);
+
+        Assert.Equal(OcrRoute.Adaptive, analysis.SelectedRoute);
+        Assert.Equal(2, analysis.BandCount);
+        Assert.Equal(before, crop.Frame.Bgra32Pixels);
     }
 
     [Theory]

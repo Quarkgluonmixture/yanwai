@@ -384,8 +384,8 @@ Final manual acceptance evidence (2026-09-21):
 
 ## Phase 4.5 — Production OCR runtime
 
-**Status: IN PROGRESS — implementation and private calibration complete; real observer
-message-matrix and Phase 4 regression acceptance remain.**
+**Status: IN PROGRESS — implementation and private calibration complete; manual
+observer acceptance is paused pending routing verification and subsequent trust review.**
 
 ### Goal
 
@@ -451,9 +451,51 @@ Current automated and real-runtime evidence:
 - The passing run used `gpu:0`, reported 3431.5 ms startup, 589.8 ms warmup, 52.4/137.3
   ms total OCR p50/p95, and 11.4/12.1 ms Paddle inference p50/p95.
 - The private report and crops remain under `.ocr-cache` and are not committed.
+- The first real observer message-matrix attempt separated a recognition/input issue
+  from a trust-policy issue: `好`, `不行`, and `微信 OCR test 456` were recognized
+  exactly but remained `LowConfidence`; `晚安` was exact and `Recognized`; English
+  produced `Hello` -> `H引0`, and a wrapped English sample gained an extra character.
+  The 52-crop corpus simultaneously showed 46/47 exact single-line Paddle results but
+  only 6/52 semantic-ready results. No score threshold will be tuned to hide this gap.
+- Before further trust-policy work, a private same-crop input audit must compare raw
+  whole bubbles, a safely padded contrast-derived text ROI, 32/40/48 px detected
+  text-band normalization with nearest/bicubic/Lanczos interpolation, and conservative
+  grayscale/background normalization on both 96 DPI (100%) and 144 DPI (150%) real
+  captures. The same `PP-OCRv6_small_rec` instance must process every variant.
+- The audit must retain bubble/ROI/text-band geometry, DPI, route, raw/normalized
+  exactness and CER, `rec_score`, inference timing, and private side-by-side artifacts.
+  Preprocessing-variant agreement is not independent-engine agreement.
 
-Manual acceptance is intentionally blocked until the real observer message matrix and
-Phase 4 regression workflow are completed. Phase 5 must not begin.
+Routing audit and fix evidence:
+
+- Final routing-change gates: Windows format verification and full build passed
+  (0 warnings/errors); 109 .NET tests including 46 observer tests passed; 17 Python
+  audit/benchmark/worker tests passed. Review found and fixed EOF band flushing and
+  stale viewer-manifest truncation; quoted-role diagnostic requests retain their role.
+- Input audit completed: 14 real bubbles at 96/144 DPI, 14 variants, 196/196 raw and
+  normalized exact. Raw whole-bubble input itself was 14/14; no preprocessing benefit
+  was demonstrated. Production Paddle input remains the raw whole bubble.
+- The actual .NET router counted three bands for two 144-DPI single-line crops.
+  Corner/background pixels formed false bands at rows 4–6 and 47–49, with 4–5
+  contrasting pixels crossing the four-pixel/three-row thresholds. At 96 DPI the
+  same edges contributed only 1–2 pixels and did not cross the threshold.
+- Routing now excludes contrast components connected to the crop boundary from its
+  layout evidence. Glyph-height-derived gap and minimum-band thresholds replace fixed
+  2/3-pixel values; the raw image sent to OCR is unchanged. Final bands flush at EOF.
+- Replaying the 14 real crops through .NET yields 14/14 PaddleSingleLine routes.
+  Five existing real multiline calibration crops remain Adaptive. Those older crops
+  lack DPI metadata, so paired real multiline DPI acceptance remains outstanding.
+- A real external-monitor observer run bootstrapped all seven texts exactly, made
+  seven Paddle requests with zero failures, and skipped OCR on 27 unchanged frames.
+  It emitted zero NEW events. All seven remained LowConfidence under unchanged trust.
+- Private native HTML inspection shows source dimensions, ROI size, capture DPI,
+  devicePixelRatio and viewport scale. Images scroll horizontally without fitting to
+  table columns. Physical native viewing still needs browser/manual confirmation.
+
+Manual acceptance remains blocked until paired multiline routing and the 144-DPI
+observer rerun are confirmed, followed separately by review of trust evidence.
+The remaining real observer matrix and Phase 4 regression workflow stay paused. Phase
+4.5 is not PASS and Phase 5 must not begin.
 
 ---
 

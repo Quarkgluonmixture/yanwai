@@ -506,3 +506,43 @@ semantic-ready. This preserves diagnostic/candidate text while preferring safe f
 - Map `rec_score` to `OcrConfidence` or trust a high score.
 - Trust agreement between Paddle and uncalibrated Windows OCR without additional
   independent evidence.
+
+---
+
+## D-020 — Audit OCR image evidence before further trust tuning
+
+**Decision**
+
+Phase 4.5 manual observer acceptance and further production trust-policy changes are
+paused while input preparation is audited on the same real bubble crops at 100% and
+150% DPI. The private audit compares the raw whole bubble, a contrast-derived text ROI
+with safe padding, text-band normalization at 32/40/48 px using nearest, bicubic, and
+Lanczos interpolation, and a conservative grayscale/background normalization. It uses
+one `PP-OCRv6_small_rec` instance and does not use Paddle text detection, perspective
+correction, deskew, dewarp, or aggressive thresholding.
+
+The audit is evidence only: it does not change production preprocessing, routing, or
+trust. Paddle `rec_score` remains uncalibrated. Agreement among preprocessing variants
+must not be described as independent-engine agreement. Private crops, variants, and
+reports remain under `.ocr-cache` and are manually inspected before any policy change.
+
+**Reason**
+
+The 52-crop corpus showed 46/47 exact Paddle single-line results but only 6/52
+semantic-ready results, while the real observer exposed both exact-but-untrusted output
+and genuine English recognition errors. Image-input quality and evidence/trust policy
+are therefore separate problems and must be measured separately before either is
+changed.
+
+**Audit outcome and follow-up**
+
+All 196 runs (14 crops × 14 variants) were raw/normalized exact, including 14/14 raw
+whole bubbles. No variant demonstrated improvement. Freeze production Paddle input
+as raw bubble crops; ROI, resampling and grayscale remain experiments only.
+
+The next investigation reproduced a routing defect: rounded border pixels produced
+two false row bands at 144 DPI. Routing excludes boundary-connected contrast regions
+and scales row-band thresholds from estimated glyph height. This mask is used only
+for route selection and never replaces OCR pixels. Trust policy remains unchanged
+pending routing acceptance. Native-pixel HTML inspection replaces table-fit images
+for judging sharpness.

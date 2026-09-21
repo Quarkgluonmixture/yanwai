@@ -183,6 +183,61 @@ raw/normalized accuracy, Paddle `rec_score`, Adaptive output, trust, CER,
 startup/warmup and request timings, fallbacks, polarity errors, and trusted-wrong count
 separate. Crops and reports remain gitignored.
 
+Phase 4.5 acceptance is currently paused for routing verification. The input audit compared
+the same detected bubble as a raw crop, a contrast-derived text ROI with safe padding,
+32/40/48 px text-band normalization using nearest/bicubic/Lanczos interpolation, and
+a conservative grayscale/background-normalized Lanczos variant. It does not use text
+detection, deskew, dewarp, perspective correction, or binarization, and it does not
+change production preprocessing or trust policy.
+
+All 196 audit runs were exact, including every raw bubble. Production keeps raw
+whole-bubble Paddle input. Use `.ocr-cache/phase4.5-input-audit/inspection.html` for
+baseline routing and `inspection-fixed.html` for corrected routing with native
+device-pixel images, source dimensions, DPI and browser scale. Long images scroll;
+the Markdown table is a navigation aid, not a sharpness comparison.
+
+To export actual .NET routing evidence without running OCR:
+
+```powershell
+dotnet run --project src/WeChatJevHud.Diagnostics -- `
+  --routing-audit .ocr-cache/phase4.5-input-audit/dpi150/manifest.json `
+  --output .ocr-cache/phase4.5-input-audit/dpi150/manifest.routing-fixed.json
+# Repeat for dpi100. Render existing evidence without re-running OCR:
+python scripts/ocr_audit_viewer.py --root .ocr-cache/phase4.5-input-audit `
+  --routing-suffix .routing-fixed.json --output-name inspection-fixed.html
+```
+
+The viewer requires Pillow. Native mode compensates for `devicePixelRatio` and
+`visualViewport.scale`; desktop browsers do not separately expose OS scale and
+browser zoom. Reset zoom with Ctrl+0 and inspect at native mode.
+
+Collect the same seven visible self-message bubbles once on each monitor, without
+resending between captures:
+
+```powershell
+.\scripts\collect-ocr-calibration.ps1 `
+  -ExpectedFile .\.ocr-cache\phase4.5-input-audit\expected.txt `
+  -Side self `
+  -CalibrationDirectory .\.ocr-cache\phase4.5-input-audit\dpi150
+
+# Move the same WeChat window, with the same bubbles visible, to the 100% monitor.
+.\scripts\collect-ocr-calibration.ps1 `
+  -ExpectedFile .\.ocr-cache\phase4.5-input-audit\expected.txt `
+  -Side self `
+  -CalibrationDirectory .\.ocr-cache\phase4.5-input-audit\dpi100
+
+.\scripts\audit-ocr-input.ps1 `
+  -Manifest `
+    .\.ocr-cache\phase4.5-input-audit\dpi150\manifest.json, `
+    .\.ocr-cache\phase4.5-input-audit\dpi100\manifest.json
+```
+
+The private Markdown/JSON report records bubble and ROI geometry, estimated text-band
+height, actual capture DPI, route, raw/normalized exactness and CER, `rec_score`, and
+inference time. Each fixture directory also contains `raw_crop.png`, `text_roi.png`,
+`normalized_lanczos.png`, and `normalized_gray.png` for manual inspection. Agreement
+between preprocessing variants is explicitly not independent-engine agreement.
+
 From WSL, invoke the same Windows scripts through interop, for example:
 
 ```bash

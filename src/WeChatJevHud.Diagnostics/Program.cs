@@ -9,6 +9,40 @@ using WeChatJevHud.Observer;
 using WeChatJevHud.Vision;
 using WeChatJevHud.Windows;
 
+var routingManifest = OptionValue(args, "--routing-audit");
+if (routingManifest is not null)
+{
+    var manifestPath = Path.GetFullPath(routingManifest);
+    var manifest = JsonSerializer.Deserialize<OcrEvaluationManifest>(
+        await File.ReadAllTextAsync(manifestPath),
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+    var rows = manifest.Fixtures.Select(item =>
+    {
+        var frame = PngFrameReader.Load(Path.Combine(Path.GetDirectoryName(manifestPath)!, item.Crop!));
+        var crop = new ImageCrop(frame, new CapturePixelRect(0, 0, frame.Width, frame.Height),
+            string.Equals(item.Role, "QuotedText", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(item.Role, "quoted", StringComparison.OrdinalIgnoreCase)
+                ? OcrCropRole.QuotedText : OcrCropRole.MainMessage);
+        var analysis = new ScaleAwareOcrRoutingPolicy().Analyze(crop);
+        return new
+        {
+            item.Name,
+            item.Expected,
+            item.CaptureDpi,
+            item.Crop,
+            BubbleWidth = frame.Width,
+            BubbleHeight = frame.Height,
+            RecordedRoute = item.OcrRoute,
+            Analysis = analysis
+        };
+    }).ToArray();
+    var output = OptionValue(args, "--output") ?? Path.ChangeExtension(manifestPath, ".routing.json");
+    await File.WriteAllTextAsync(output, JsonSerializer.Serialize(rows,
+        new JsonSerializerOptions { WriteIndented = true, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } }));
+    Console.WriteLine($"Routing audit: {rows.Length} crops -> {output}");
+    return 0;
+}
+
 var productionEvaluationIndex = FindOption(args, "--production-ocr-evaluate");
 if (productionEvaluationIndex >= 0)
 {
@@ -606,16 +640,19 @@ static async Task<int> CollectOcrCalibrationAsync(
     {
         var name = $"real-{batchId}-{index + 1:D2}";
         var cropPath = Path.Combine(cropDirectory, $"{name}.png");
-        PngFrameWriter.Save(
-            ImageCropExtractor.Extract(new ImageCrop(frame, bubbles[index].Bounds)),
-            cropPath);
+        var crop = new ImageCrop(frame, bubbles[index].Bounds);
+        PngFrameWriter.Save(ImageCropExtractor.Extract(crop), cropPath);
         manifest.Fixtures.Add(new OcrEvaluationManifestItem(
             name,
             Image: null,
             Crop: Path.GetRelativePath(fullDirectory, cropPath),
             expected[index],
             0, 0, 0, 0,
-            Group: "phase4.5-real"));
+            Group: "phase4.5-real",
+            CaptureDpi: window.Dpi.X,
+            DpiScale: window.Dpi.ScaleX,
+            OcrRoute: new ScaleAwareOcrRoutingPolicy().SelectRoute(crop).ToString(),
+            Monitor: window.Monitor.DeviceName));
     }
 
     await File.WriteAllTextAsync(
@@ -1051,4 +1088,8 @@ internal sealed record OcrEvaluationManifestItem(
     int Width,
     int Height,
     string? Group = null,
-    string? Role = null);
+    string? Role = null,
+    uint? CaptureDpi = null,
+    double? DpiScale = null,
+    string? OcrRoute = null,
+    string? Monitor = null);
