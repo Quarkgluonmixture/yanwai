@@ -438,7 +438,7 @@ Current automated and real-runtime evidence:
   only represented polarity item (`好`) was correct; this is not yet the required full
   polarity corpus.
 - The private report and crops remain under `.ocr-cache` and are not committed.
-- Five private expected-text batches containing 52 labels are prepared locally; the
+- Seven private expected-text batches containing 52 labels are prepared locally; the
   corresponding real detected crops and visual crop/label review are still pending.
 
 Manual acceptance is intentionally blocked until the expanded private corpus and real
