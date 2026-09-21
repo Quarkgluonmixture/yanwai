@@ -36,7 +36,11 @@ public sealed record OcrDiagnostics(
     OcrRoute Route,
     OcrTrustBasis TrustBasis,
     IReadOnlyList<OcrEngineEvidence> Evidence,
-    TimeSpan TotalElapsed);
+    TimeSpan TotalElapsed,
+    UnifiedExtraction? Extraction = null,
+    OcrCropRole RegionRole = OcrCropRole.MainMessage,
+    bool QuoteSeparationUnverified = false,
+    bool RuntimeFallback = false);
 
 public sealed record OcrEngineEvidence(
     string EngineName,
@@ -52,6 +56,7 @@ public enum OcrRoute
 {
     Adaptive,
     PaddleSingleLine,
+    PaddleUnified,
 }
 
 public enum OcrTrustBasis

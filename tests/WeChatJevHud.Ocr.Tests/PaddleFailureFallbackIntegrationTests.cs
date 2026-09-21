@@ -12,12 +12,14 @@ public sealed class PaddleFailureFallbackIntegrationTests
     [InlineData("timeout")]
     [InlineData("crash")]
     [InlineData("gpu-fallback")]
+    [InlineData("wrong-id")]
+    [InlineData("detector-failure")]
+    [InlineData("recognizer-failure")]
     public async Task ConcreteWorkerFailureFallsBackToAdaptive(string mode)
     {
         await using var worker = Worker(mode);
         var counters = worker.Counters;
-        var engine = new RoutedOcrEngine(
-            new PaddleRoute(),
+        var engine = new UnifiedPaddleOcrEngine(
             new PaddleRecognitionOcrEngine(worker),
             new AdaptiveStub(),
             counters);
@@ -38,8 +40,7 @@ public sealed class PaddleFailureFallbackIntegrationTests
                 Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.exe"),
                 [],
                 restartCooldown: TimeSpan.Zero));
-        var engine = new RoutedOcrEngine(
-            new PaddleRoute(),
+        var engine = new UnifiedPaddleOcrEngine(
             new PaddleRecognitionOcrEngine(worker),
             new AdaptiveStub(),
             worker.Counters);
@@ -75,11 +76,6 @@ public sealed class PaddleFailureFallbackIntegrationTests
             DateTimeOffset.UtcNow,
             TimeSpan.Zero);
         return new ImageCrop(frame, new CapturePixelRect(0, 0, 32, 24));
-    }
-
-    private sealed class PaddleRoute : IOcrRoutingPolicy
-    {
-        public OcrRoute SelectRoute(ImageCrop crop) => OcrRoute.PaddleSingleLine;
     }
 
     private sealed class AdaptiveStub : IOcrEngine

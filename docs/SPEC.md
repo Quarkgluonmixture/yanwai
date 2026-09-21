@@ -493,15 +493,20 @@ punctuation spacing such as `123, I just got home.`.
 
 ### Phase 4.5 production OCR runtime
 
-`PP-OCRv6_small_rec` is the production candidate for crops classified as single-line
-by scale-aware pixel/layout evidence. Paddle text detection is not used. Multiline,
-wrapped, quoted, and ambiguous layouts remain on Adaptive/Tesseract for V0.
+Unified Paddle is the normal production extraction path (D-023). Phase 2 still detects
+message bubbles. Inside each isolated crop, `PP-OCRv6_small_det` determines line structure:
+zero or one detection sends the **original whole crop** to `PP-OCRv6_small_rec`;
+two or more detections use clipped axis-aligned boxes, ordered by vertical center then X.
+There is no detector-box padding or image preprocessing. CJK wraps join without an
+added space; Latin wraps join with one unless boundary whitespace already exists.
+Raw per-line text remains available. Zero detections is a successful Paddle path.
 
 The Paddle adapter remains behind `IOcrEngine` and communicates with one persistent,
-configurable Windows-native Python worker. The worker loads and warms the model once,
+configurable Windows-native Python worker. The worker loads and warms both models once,
 then exchanges UTF-8 JSON Lines over redirected standard input/output. Every request
 has an opaque ID and transfers PNG bytes in memory. Only protocol JSON may use stdout;
-worker/library logs use stderr. `READY` includes model name, PaddleOCR/PaddlePaddle
+worker/library logs use stderr. Protocol v2 `READY` includes `detector_model` and
+`recognizer_model`, PaddleOCR/PaddlePaddle
 versions, requested/active device, startup time, and warmup time.
 
 OCR results may carry `OcrDiagnostics` with route, trust basis, total time, and
@@ -509,16 +514,18 @@ engine-specific evidence. For Paddle, `EngineScoreKind` is `paddle_rec_score`, w
 `OcrConfidence` is null. `rec_score` is not a correctness probability and cannot
 establish trust.
 
-Paddle-only output, disagreement, Adaptive-only output, and worker-fallback output
-remain `LowConfidence` candidates in the production router. Promotion requires
-normalized agreement between Paddle, the selected Adaptive output, and a separate
-confidence-bearing OCR candidate; agreement between Paddle and uncalibrated Windows
-OCR alone is insufficient. Any worker/protocol/device failure falls back to Adaptive
-without losing candidate text. This is an explicit replaceable policy, not a
-model-score threshold.
+Successful Paddle never invokes Adaptive. Non-empty output remains `LowConfidence`,
+empty output `NoText`, and semantic-ready remains false pending separate calibration.
+Only runtime/model/protocol failure invokes Adaptive, whose output is explicitly untrusted.
+No score threshold or replacement trust calibration is introduced. Diagnostics retain
+line count, clipped boxes, per-line raw text/rec_score, composed raw output, detection,
+recognition, worker-total and roundtrip times. Multiline has no fabricated aggregate score.
+Independent `QuotedText` crops are processed separately. Main-message crops carry
+`QuoteSeparationUnverified=true` because reliable internal quote geometry is not yet
+available; this is uncertainty, not a claim that every bubble contains a quote.
 
-Before any further Phase 4.5 production preprocessing or trust-policy change, run the
-private OCR input audit on matched 96-DPI and 144-DPI real bubble crops. Derive the text
+The completed prerequisite input audit used matched 96-DPI and 144-DPI real bubble
+crops. Experimental audit tooling derives the text
 ROI conservatively from contrast against the bubble background, retain configurable
 safe padding, estimate the text-band height, and compare 32/40/48 px normalization with
 nearest, bicubic, Lanczos, and conservative grayscale/background variants. Use one
@@ -528,19 +535,21 @@ evidence and review. Variant agreement is correlated preprocessing evidence, not
 independent-engine agreement.
 
 The completed input audit demonstrated no benefit over raw bubble crops. Production
-Paddle therefore continues to receive raw whole-bubble PNGs. Routing-only contrast
+Paddle therefore continues to receive raw whole-bubble PNGs for zero/one-line crops.
+The following routing analysis is retained **only as historical experimental tooling**.
+Routing-only contrast
 analysis excludes components connected to the crop boundary (bubble corners/tail
 background). Estimated glyph height is the upper-quartile retained component height;
 maximum bridged gap is 12% of that height and minimum band height is 15%, each at least
 one pixel. These are explicit heuristics, not confidence. Crops with one retained
-band route to Paddle; other layouts and quoted regions remain Adaptive.
+band formerly routed to Paddle; other layouts and quoted regions formerly used Adaptive.
 Explicit routing diagnostics expose row counts, active states, background estimate,
 glyph scale, thresholds, band count and selected route without calling OCR.
 
-An isolated Phase 4.5 experiment may use `PP-OCRv6_small_det` inside these already
+The preceding isolated Phase 4.5 experiment used `PP-OCRv6_small_det` inside these already
 isolated bubble or quote crops, followed by `PP-OCRv6_small_rec` on axis-aligned line
 boxes. This explicitly supersedes the earlier blanket prohibition on Paddle detection
-for the experiment only. Phase 2 message detection is unchanged. Both models remain
+initially for the experiment; D-023 now authorizes production use inside crops only. Phase 2 message detection is unchanged. Both models remain
 resident across fixtures; document orientation, unwarping and text-line orientation
 are disabled by using only the detection and recognition modules. Report line boxes,
 raw line strings, composed text, literal/normalized evaluation and stage timings.
@@ -549,8 +558,9 @@ benchmark. See D-021 and the Phase 4.5 acceptance evidence.
 
 The Unified benchmark follow-up uses original raw whole-bubble recognition when
 small detection yields zero or one line, and retains the same line-box extraction
-when it yields two or more. It is the recommended next production candidate (D-022),
-but production routing and trust remain unchanged until separately implemented.
+when it yields two or more. D-022's candidate is now implemented under D-023.
+The old custom router and normal Adaptive fusion are removed from observer wiring;
+trust calibration remains deferred.
 
 ---
 

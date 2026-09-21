@@ -5,13 +5,20 @@ OCR runtime. It does not implement Phase 5 Jev calls or the HUD overlay.
 
 ## What is available
 
+Current Phase 4.5 extraction: Unified Paddle, production parity **79/84**, no Adaptive
+fallbacks on the healthy corpus. Real observer matrix and trust calibration are still
+pending; this is not Phase 4.5 PASS. Run the actual worker evaluation with
+`scripts/evaluate-production-ocr.ps1`, then
+`python -m scripts.compare_production_unified --root .ocr-cache/phase4.5-paddle-bubble`
+to check the immutable benchmark parity. Reports remain private under `.ocr-cache`.
+
 - `WeChatJevHud.App`: WPF diagnostic UI that refreshes HWND/process/title/class, desktop bounds, monitor, and DPI every 500 ms. Its button saves and previews one frame only when explicitly pressed.
 - `WeChatJevHud.Diagnostics`: command-line window diagnostics, explicit capture, offline fixture detection, and capture-plus-detection.
 - `WeChatJevHud.Vision`: capture-relative chat ROI location, `Remote`/`Self`/`Unknown` text-bubble detection, heuristic detection scores, timing, and annotated debug rendering.
 - Replaceable interfaces for window tracking, capture, bubble detection, OCR, Jev, and overlay rendering.
 - `WeChatJevHud.Ocr.Windows` and `WeChatJevHud.Ocr.Tesseract`: crop-only Simplified Chinese/English OCR adapters, explicit nullable `OcrConfidence`, low-confidence status, preprocessing variants, and an adaptive candidate policy.
-- `WeChatJevHud.Ocr`: explicit single-line/multiline routing, a persistent
-  recognition-only `PP-OCRv6_small_rec` worker client, engine-specific evidence, and
+- `WeChatJevHud.Ocr`: Unified bubble extraction through persistent
+  `PP-OCRv6_small_det` + `PP-OCRv6_small_rec`, engine-specific evidence, and
   a conservative trust/fallback policy. Paddle `rec_score` never becomes
   `OcrConfidence`.
 - `WeChatJevHud.Observer`: in-memory change detection, conversation epochs, ordered
@@ -150,13 +157,15 @@ uv` fails.
 ```
 
 The observer launches one persistent worker, waits for `READY`, reports exact
-model/library/device information, and keeps the model resident. Bubble PNG bytes use
+model/library/device information, and keeps both models resident. Bubble PNG bytes use
 an ID-correlated UTF-8 JSON-lines protocol in memory; normal operation writes no
-message crops. `PP-OCRv6_small_rec` handles confidently classified single-line crops.
-Wrapped/multiline and ambiguous crops remain Adaptive. Worker/protocol/device failure
-falls back without terminating the observer. Paddle disagreement, Adaptive-only text,
-and fallback text remain available as `LowConfidence` candidates but are not trusted
-for downstream semantics.
+message crops. Detection occurs only inside Phase 2's isolated bubbles. Zero/one text
+line uses the original raw whole crop; 2+ lines use clipped, ordered line crops and
+CJK/Latin wrap composition. No preprocessing or custom scale-aware router is used.
+Adaptive runs only on worker/protocol/device failure, never as a normal second opinion.
+Paddle and fallback text remain untrusted `LowConfidence` candidates pending separate
+trust calibration. Per-line scores are diagnostic only; `OcrConfidence` remains null
+for Paddle. Main crops retain explicit unknown quote-separation metadata.
 Worker/library stderr is suppressed by default. `-PaddleWorkerDebug` explicitly
 enables privacy-safe troubleshooting metadata (severity category and character count),
 never the raw third-party stderr line; output is capped to avoid log flooding.
@@ -183,7 +192,8 @@ raw/normalized accuracy, Paddle `rec_score`, Adaptive output, trust, CER,
 startup/warmup and request timings, fallbacks, polarity errors, and trusted-wrong count
 separate. Crops and reports remain gitignored.
 
-Phase 4.5 acceptance is currently paused for routing verification. The input audit compared
+Phase 4.5 remains IN PROGRESS: Unified production extraction is implemented; real observer
+acceptance and separate trust calibration remain. The historical input audit compared
 the same detected bubble as a raw crop, a contrast-derived text ROI with safe padding,
 32/40/48 px text-band normalization using nearest/bicubic/Lanczos interpolation, and
 a conservative grayscale/background-normalized Lanczos variant. It does not use text
@@ -295,8 +305,8 @@ python scripts/compare_unified_bubble.py --root .ocr-cache/phase4.5-paddle-bubbl
 `unified-report.md` contains every candidate row, and `unified-comparison.md` reports
 all requested cohorts plus improvements/regressions. Original routed and line-rec
 results remain intact. The outcome is 79/84 exact, preserving 46/47 calibration
-single-line and 7/7 multiline/quote. Unified is recommended for a subsequent production
-change, but the current normal router, persistent worker and trust policy remain
+single-line and 7/7 multiline/quote. This historical benchmark recommended the production
+change now implemented under D-023. Its benchmark itself left the production path
 unchanged by this experiment. Scores are never correctness probabilities.
 
 ## Secrets and later phases

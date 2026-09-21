@@ -39,9 +39,13 @@ public sealed class PaddleWorkerClientTests
         var second = await client.RecognizeAsync([4, 5, 6], CancellationToken.None);
 
         Assert.Equal("PP-OCRv6_small_rec", ready.ModelName);
+        Assert.Equal("PP-OCRv6_small_det", ready.DetectorModel);
+        Assert.Equal("PP-OCRv6_small_rec", ready.RecognizerModel);
         Assert.Equal("cpu", ready.ActiveDevice);
         Assert.NotEqual(first.RequestId, second.RequestId);
         Assert.Equal("好", first.RawText);
+        Assert.Equal(0, first.Extraction!.DetectedLineCount);
+        Assert.Equal("好", Assert.Single(first.Extraction.Lines).RawText);
         Assert.Equal(1, client.Counters.Snapshot.PaddleWorkerStarts);
         Assert.Equal(2, client.Counters.Snapshot.PaddleRequests);
     }

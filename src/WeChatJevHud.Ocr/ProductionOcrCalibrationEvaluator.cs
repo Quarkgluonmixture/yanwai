@@ -43,7 +43,8 @@ public sealed class ProductionOcrCalibrationEvaluator
                 CharacterErrorRate(normalizedExpected, normalizedFinal),
                 paddle?.InferenceElapsed,
                 paddle?.RoundtripElapsed,
-                timer.Elapsed));
+                timer.Elapsed,
+                diagnostics));
         }
 
         return rows;
@@ -95,4 +96,5 @@ public sealed record ProductionOcrCalibrationRow(
     double NormalizedCharacterErrorRate,
     TimeSpan? PaddleInference,
     TimeSpan? PaddleRoundtrip,
-    TimeSpan TotalOcr);
+    TimeSpan TotalOcr,
+    OcrDiagnostics? Diagnostics = null);

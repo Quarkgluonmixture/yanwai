@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('normal', 'malformed', 'timeout', 'crash', 'gpu-fallback', 'stderr')]
+    [ValidateSet('normal', 'malformed', 'timeout', 'crash', 'gpu-fallback', 'stderr', 'wrong-id', 'detector-failure', 'recognizer-failure')]
     [string]$Mode = 'normal'
 )
 
@@ -13,7 +13,9 @@ if ($Mode -eq 'stderr') {
 
 $ready = @{
     type = 'ready'
-    protocol_version = 1
+    protocol_version = 2
+    detector_model = 'PP-OCRv6_small_det'
+    recognizer_model = 'PP-OCRv6_small_rec'
     model_name = 'PP-OCRv6_small_rec'
     paddleocr_version = 'test'
     paddlepaddle_version = 'test'
@@ -38,13 +40,24 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
         continue
     }
     if ($Mode -eq 'crash') { exit 7 }
+    if ($Mode -in @('detector-failure', 'recognizer-failure')) {
+        [Console]::Out.WriteLine((@{type='error';request_id=$request.request_id;message=$Mode} | ConvertTo-Json -Compress))
+        [Console]::Out.Flush()
+        continue
+    }
     $response = @{
         type = 'result'
-        request_id = $request.request_id
+        request_id = if ($Mode -eq 'wrong-id') { 'wrong' } else { $request.request_id }
         raw_text = [string][char]0x597D
         rec_score = 0.999
         inference_ms = 3.5
-    } | ConvertTo-Json -Compress
+        detected_line_count = 0
+        line_boxes = @()
+        lines = @(@{raw_text=[string][char]0x597D;rec_score=0.999})
+        detection_ms = 1.0
+        recognition_ms = 2.5
+        worker_total_ms = 4.0
+    } | ConvertTo-Json -Depth 5 -Compress
     [Console]::Out.WriteLine($response)
     [Console]::Out.Flush()
 }

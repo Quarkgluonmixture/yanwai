@@ -39,20 +39,35 @@ public sealed record PaddleWorkerRuntimeInfo(
     string RequestedDevice,
     string ActiveDevice,
     TimeSpan StartupElapsed,
-    TimeSpan WarmupElapsed);
+    TimeSpan WarmupElapsed,
+    string DetectorModel = "PP-OCRv6_small_det")
+{
+    public string RecognizerModel => ModelName;
+}
 
 public sealed record PaddleRecognition(
     string RequestId,
     string RawText,
-    double RecScore,
+    double? RecScore,
     TimeSpan InferenceElapsed,
-    TimeSpan RoundtripElapsed)
+    TimeSpan RoundtripElapsed,
+    UnifiedExtraction? Extraction = null)
 {
     public TimeSpan TransportElapsed =>
-        RoundtripElapsed > InferenceElapsed
-            ? RoundtripElapsed - InferenceElapsed
+        RoundtripElapsed > (Extraction?.WorkerTotalElapsed ?? InferenceElapsed)
+            ? RoundtripElapsed - (Extraction?.WorkerTotalElapsed ?? InferenceElapsed)
             : TimeSpan.Zero;
 }
+
+public sealed record PaddleLine(string RawText, double RecScore);
+
+public sealed record UnifiedExtraction(
+    int DetectedLineCount,
+    IReadOnlyList<int[]> LineBoxes,
+    IReadOnlyList<PaddleLine> Lines,
+    TimeSpan DetectionElapsed,
+    TimeSpan RecognitionElapsed,
+    TimeSpan WorkerTotalElapsed);
 
 public sealed class ProductionOcrCounters
 {
@@ -64,6 +79,7 @@ public sealed class ProductionOcrCounters
     private long _fallbacks;
     private long _inferenceTicks;
     private long _roundtripTicks;
+    private long _workerTotalTicks;
 
     public ProductionOcrCounterSnapshot Snapshot => new(
         Interlocked.Read(ref _workerStarts),
@@ -73,7 +89,8 @@ public sealed class ProductionOcrCounters
         Interlocked.Read(ref _timeouts),
         Interlocked.Read(ref _fallbacks),
         TimeSpan.FromTicks(Interlocked.Read(ref _inferenceTicks)),
-        TimeSpan.FromTicks(Interlocked.Read(ref _roundtripTicks)));
+        TimeSpan.FromTicks(Interlocked.Read(ref _roundtripTicks)),
+        TimeSpan.FromTicks(Interlocked.Read(ref _workerTotalTicks)));
 
     internal void WorkerStarted(bool restart)
     {
@@ -96,10 +113,11 @@ public sealed class ProductionOcrCounters
 
     public void FallbackUsed() => Interlocked.Increment(ref _fallbacks);
 
-    internal void Timings(TimeSpan inference, TimeSpan roundtrip)
+    internal void Timings(TimeSpan inference, TimeSpan roundtrip, TimeSpan workerTotal)
     {
         Interlocked.Add(ref _inferenceTicks, inference.Ticks);
         Interlocked.Add(ref _roundtripTicks, roundtrip.Ticks);
+        Interlocked.Add(ref _workerTotalTicks, workerTotal.Ticks);
     }
 }
 
@@ -111,4 +129,5 @@ public sealed record ProductionOcrCounterSnapshot(
     long PaddleTimeouts,
     long PaddleFallbacks,
     TimeSpan PaddleInference,
-    TimeSpan PaddleRoundtrip);
+    TimeSpan PaddleRoundtrip,
+    TimeSpan PaddleWorkerTotal = default);

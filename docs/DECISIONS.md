@@ -464,6 +464,9 @@ emits no old messages as live-new.
 
 ## D-019 — Production OCR uses routed evidence, not Paddle score trust
 
+**Historical: extraction/routing and normal secondary-engine agreement superseded by D-023.
+Uncalibrated-score and untrusted-fallback constraints remain.**
+
 **Decision**
 
 Phase 4.5 runs `PP-OCRv6_small_rec` through a persistent Windows-native Python worker
@@ -596,3 +599,30 @@ make that production change or establish trust. Existing Remote glyph errors and
 Latin wrap/spacing ambiguity remain. Real zero-detection behavior was not observed;
 its whole-crop branch has deterministic test coverage only. Dual-DPI multiline
 coverage remains limited. Phase 4.5 is IN PROGRESS.
+
+---
+
+## D-023 — Unified Paddle is the production extractor; trust calibration is separate
+
+The user accepted D-022's Unified benchmark. The normal observer now calls one
+persistent native Windows worker containing `PP-OCRv6_small_det` and
+`PP-OCRv6_small_rec`. Both load and warm once. Detection only segments text inside
+Phase 2's isolated bubble; it never locates messages. Zero/one detection recognizes
+the original whole crop, while 2+ recognize clipped, reading-ordered line crops using
+the benchmark's composition rules. No padding/preprocessing/document transforms.
+
+This supersedes D-019's custom single-line router, normal multiline Adaptive route
+and normal Paddle/Adaptive agreement. Adaptive is now runtime-failure-only and always
+untrusted. Successful Paddle (including zero detections and empty recognition) never
+calls Adaptive. The old scale-aware analyzer remains only for experimental diagnostics.
+
+This is extraction, not new trust calibration: non-empty Paddle stays LowConfidence,
+NoText stays NoText, Paddle OcrConfidence is null, and per-line rec_score is diagnostic.
+Main/quote crops remain separate. Main crops expose unknown quote separation rather
+than claiming composed quote/reply text is trusted. No new quote-layout subsystem.
+
+Actual production .NET API parity on the immutable 84 entries / 76 distinct crops:
+all final text, line counts and boxes match the accepted benchmark, 79/84 exact;
+calibration single-line 46/47; multiline/quote 7/7; both DPI cohorts 7/7; no fallback.
+Observed wrong outputs remain untrusted. Real observer acceptance and subsequent
+trust calibration are separate remaining gates; Phase 4.5 is not PASS.

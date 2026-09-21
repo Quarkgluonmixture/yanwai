@@ -384,27 +384,25 @@ Final manual acceptance evidence (2026-09-21):
 
 ## Phase 4.5 — Production OCR runtime
 
-**Status: IN PROGRESS — implementation and private calibration complete; manual
-observer acceptance is paused pending routing verification and subsequent trust review.**
+**Status: IN PROGRESS — Unified production extraction implemented and production
+corpus parity verified; real observer matrix and separate trust calibration pending.**
 
 ### Goal
 
-Use `PP-OCRv6_small_rec` safely for real single-line WeChat bubbles without regressing
-multiline OCR or Phase 4 observation behavior.
+Use Unified small-det + small-rec for already-isolated bubbles without regressing
+Phase 4 observation behavior. Trust calibration remains separate.
 
 ### Acceptance
 
-- [x] A configurable persistent worker loads and warms the model once and emits an
+- [x] A configurable persistent worker loads and warms both models once and emits an
   explicit version/device/timing `READY` handshake.
 - [x] Crop bytes remain in memory and every UTF-8 protocol response is correlated by
   request ID.
-- [x] Paddle recognition is behind `IOcrEngine`; Paddle text detection is absent.
-- [x] Scale-aware line evidence routes single-line crops to Paddle and multiline or
-  ambiguous crops to Adaptive.
+- [x] Unified Paddle is behind `IOcrEngine`; detection occurs only inside isolated crops.
+- [x] Zero/one line recognizes original whole crop; 2+ lines use clipped ordered crops.
 - [x] Paddle `rec_score` remains engine-specific metadata and never becomes
   `OcrConfidence` or a trust threshold.
-- [x] Paddle-only output and disagreement remain untrusted; explicit multi-engine
-  evidence owns semantic trust.
+- [x] Paddle outputs remain untrusted pending separate calibration; no normal secondary engine.
 - [x] Worker unavailable/startup/crash/timeout/malformed-response paths fall back to
   Adaptive without terminating the observer.
 - [x] Runtime/observer counters and startup, warmup, inference, roundtrip, transport,
@@ -417,7 +415,37 @@ multiline OCR or Phase 4 observation behavior.
 - [ ] Phase 4 identity, deduplication, scrolling, and post-switch bootstrap behavior
   are manually reconfirmed with production OCR enabled.
 
-Current automated and real-runtime evidence:
+### Unified production evidence (current)
+
+- Final gates: Windows `dotnet format --verify-no-changes`, full solution build,
+  and 112 .NET tests passed (including 46 observer regressions); native Windows Python
+  worker/benchmark suite 31 tests passed. No skipped or failed tests.
+- Deterministic coverage includes 0/1 original-pixel identity, changed one-line boxes,
+  ordered/clipped multiline crops, CJK/Latin composition, dual-model warmup/READY,
+  request correlation, detector/recognizer errors, crash, timeout, malformed/oversized
+  boxes, untrusted fallback, no successful-path Adaptive, score isolation and idle OCR.
+
+- The actual .NET `PaddleWorkerClient` / `PaddleRecognitionOcrEngine` /
+  `UnifiedPaddleOcrEngine` replay matches accepted Unified outputs and boxes on all
+  immutable 84 entries / 76 byte-distinct crops. Private report:
+  `.ocr-cache/phase4.5-paddle-bubble/production-parity.md`; full rows `production-unified.json`.
+- Exact/normalized: overall 79/84; calibration single-line 46/47; multiline/quote 7/7;
+  96 DPI 7/7; 144 DPI 7/7; punctuation 16/18; Chinese 62/65; English 6/8; mixed 9/9.
+- Healthy corpus fallback count 0. Semantic-ready remains 0; no score-based promotion.
+- Final replay steady-state p50/p95 ms: worker roundtrip 18.8/42.7, detector 9.1/17.1,
+  recognizer 8.4/30.8, total .NET OCR including PNG encode 19.4/46.4.
+  These include the first post-warmup request, exclude startup/warmup, and have no
+  interleaved benchmark control calls.
+- Remaining real-device gate: Self/Remote 好, 不行, English, mixed, long single-line,
+  two/three-line messages; scroll, resize/DPI, switch/bootstrap, minimize/restore.
+  A current-view smoke run does not substitute for that matrix.
+- Current-view smoke: seven real Self bubbles (好, 晚安, 不行, English, two mixed,
+  longer Chinese) were extracted exactly with one detected line each, LowConfidence /
+  semantic_ready=false and no fallback. 46 frames: 1 changed, 45 unchanged, 7 OCR
+  calls only at bootstrap, 0 NEW. Worker startup/warmup 3007.1/565.0 ms.
+  Remote, multiline and physical interaction matrix are not yet reconfirmed.
+
+Historical routed-runtime evidence (superseded by D-023, retained for traceability):
 
 - Final automated gates passed on Windows: solution format verification, a full build
   with 0 warnings/errors, 104 .NET tests, and 9 Python worker/benchmark tests.

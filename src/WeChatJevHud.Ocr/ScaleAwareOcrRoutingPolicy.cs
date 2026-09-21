@@ -2,6 +2,7 @@ using WeChatJevHud.Capture;
 
 namespace WeChatJevHud.Ocr;
 
+/// <summary>Legacy experimental routing audit only; not used by production OCR.</summary>
 public sealed class ScaleAwareOcrRoutingPolicy : IOcrRoutingPolicy
 {
     private const int MinimumContrast = 42;

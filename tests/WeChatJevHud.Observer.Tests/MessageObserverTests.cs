@@ -45,7 +45,7 @@ public sealed class MessageObserverTests
             [new DetectedBubble(new CapturePixelRect(12, 60, 50, 24), MessageSide.Remote, 0.94)]);
         var paddle = new StubOcrEngine(new OcrResult("好", null, OcrTextStatus.LowConfidence, "好"));
         var adaptive = new StubOcrEngine(new OcrResult("好", 0.96, OcrTextStatus.Recognized, "好"));
-        var routed = new RoutedOcrEngine(new FixedRoutingPolicy(), paddle, adaptive);
+        var routed = new UnifiedPaddleOcrEngine(paddle, adaptive);
         var observer = CreateObserver(detector, routed);
 
         await observer.ObserveAsync(frame, CancellationToken.None);
@@ -54,6 +54,7 @@ public sealed class MessageObserverTests
 
         Assert.Equal(1, paddleCallsAfterBaseline);
         Assert.Equal(paddleCallsAfterBaseline, paddle.Calls);
+        Assert.Equal(0, adaptive.Calls);
     }
 
     [Fact]
@@ -1599,11 +1600,6 @@ public sealed class MessageObserverTests
             Calls++;
             return Task.FromResult(results[index]);
         }
-    }
-
-    private sealed class FixedRoutingPolicy : IOcrRoutingPolicy
-    {
-        public OcrRoute SelectRoute(ImageCrop crop) => OcrRoute.PaddleSingleLine;
     }
 
     private sealed record StubConversationIdentityEvidence(ulong Value) : IConversationIdentityEvidence;

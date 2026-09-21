@@ -118,14 +118,28 @@ public sealed class PaddleWorkerClient : IPaddleRecognitionClient
                     throw new PaddleWorkerException($"Unexpected Paddle worker response type '{type}'.");
                 }
 
-                var inference = TimeSpan.FromMilliseconds(root.GetProperty("inference_ms").GetDouble());
+                var inference = ReadElapsed(root, "inference_ms");
+                var count = root.GetProperty("detected_line_count").GetInt32();
+                var boxes = root.GetProperty("line_boxes").EnumerateArray()
+                    .Select(box => box.EnumerateArray().Select(v => v.GetInt32()).ToArray()).ToArray();
+                var lines = root.GetProperty("lines").EnumerateArray().Select(item =>
+                    new PaddleLine(RequiredString(item, "raw_text"), item.GetProperty("rec_score").GetDouble())).ToArray();
+                if (count < 0 || boxes.Length != count || lines.Length != Math.Max(1, count) ||
+                    boxes.Any(box => box.Length != 4 || box[0] < 0 || box[1] < 0 || box[2] <= box[0] || box[3] <= box[1]) ||
+                    lines.Any(item => !double.IsFinite(item.RecScore)))
+                {
+                    throw new PaddleWorkerException("Invalid Unified extraction structure.");
+                }
+                var extraction = new UnifiedExtraction(count, boxes, lines,
+                    ReadElapsed(root, "detection_ms"), ReadElapsed(root, "recognition_ms"), ReadElapsed(root, "worker_total_ms"));
                 var recognition = new PaddleRecognition(
                     responseId,
                     RequiredString(root, "raw_text"),
-                    root.GetProperty("rec_score").GetDouble(),
+                    root.GetProperty("rec_score").ValueKind == JsonValueKind.Null ? null : root.GetProperty("rec_score").GetDouble(),
                     inference,
-                    timer.Elapsed);
-                Counters.Timings(recognition.InferenceElapsed, recognition.RoundtripElapsed);
+                    timer.Elapsed,
+                    extraction);
+                Counters.Timings(recognition.InferenceElapsed, recognition.RoundtripElapsed, extraction.WorkerTotalElapsed);
                 return recognition;
             }
             catch (PaddleWorkerException)
@@ -266,14 +280,21 @@ public sealed class PaddleWorkerClient : IPaddleRecognitionClient
                 throw new PaddleWorkerException("Paddle worker did not emit a READY handshake.");
             }
 
+            if (root.GetProperty("protocol_version").GetInt32() != 2 ||
+                RequiredString(root, "detector_model") != "PP-OCRv6_small_det" ||
+                RequiredString(root, "recognizer_model") != "PP-OCRv6_small_rec")
+            {
+                throw new PaddleWorkerException("Unsupported Unified worker handshake.");
+            }
             RuntimeInfo = new PaddleWorkerRuntimeInfo(
-                RequiredString(root, "model_name"),
+                RequiredString(root, "recognizer_model"),
                 RequiredString(root, "paddleocr_version"),
                 RequiredString(root, "paddlepaddle_version"),
                 RequiredString(root, "device_requested"),
                 RequiredString(root, "device_active"),
                 TimeSpan.FromMilliseconds(root.GetProperty("startup_ms").GetDouble()),
-                TimeSpan.FromMilliseconds(root.GetProperty("warmup_ms").GetDouble()));
+                TimeSpan.FromMilliseconds(root.GetProperty("warmup_ms").GetDouble()),
+                RequiredString(root, "detector_model"));
             if (RuntimeInfo.RequestedDevice.StartsWith("gpu", StringComparison.OrdinalIgnoreCase) &&
                 !RuntimeInfo.ActiveDevice.StartsWith("gpu", StringComparison.OrdinalIgnoreCase))
             {
@@ -296,6 +317,16 @@ public sealed class PaddleWorkerClient : IPaddleRecognitionClient
             StopWorker(scheduleRetry: true);
             throw new PaddleWorkerException("Paddle worker returned a malformed READY handshake.", exception);
         }
+    }
+
+    private static TimeSpan ReadElapsed(JsonElement root, string name)
+    {
+        var value = root.GetProperty(name).GetDouble();
+        if (!double.IsFinite(value) || value < 0 || value > TimeSpan.MaxValue.TotalMilliseconds)
+        {
+            throw new PaddleWorkerException("Invalid worker timing.");
+        }
+        return TimeSpan.FromMilliseconds(value);
     }
 
     private async Task PumpStderrAsync(Process process)

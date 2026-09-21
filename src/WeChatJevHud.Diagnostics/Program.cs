@@ -426,8 +426,7 @@ static async Task<int> EvaluateProductionOcrAsync(
         counters,
         workerDebug ? line => Console.Error.WriteLine($"[paddle] {line}") : null);
     var runtime = await worker.InitializeAsync(CancellationToken.None);
-    var engine = new RoutedOcrEngine(
-        new ScaleAwareOcrRoutingPolicy(),
+    var engine = new UnifiedPaddleOcrEngine(
         new PaddleRecognitionOcrEngine(worker),
         adaptive,
         counters);
@@ -462,16 +461,7 @@ static async Task<int> EvaluateProductionOcrAsync(
             trusted_wrong = group.Count(row => row.IsTrustedForSemantics && !row.NormalizedMatch),
         })
         .ToArray();
-    var singleLineRows = rows.Where(row => row.Route == OcrRoute.PaddleSingleLine).ToArray();
-    var adaptiveOnlySemanticReadyRows = singleLineRows.Where(
-        row => row.SecondaryStatus == OcrTextStatus.Recognized && !string.IsNullOrWhiteSpace(row.SecondaryRaw))
-        .ToArray();
-    var adaptiveOnlyTrustedCorrect = adaptiveOnlySemanticReadyRows.Count(row =>
-        string.Equals(
-            OcrTextNormalizer.Normalize(row.Expected),
-            OcrTextNormalizer.Normalize(row.SecondaryRaw),
-            StringComparison.Ordinal));
-    var adaptiveOnlyTrustedWrong = adaptiveOnlySemanticReadyRows.Length - adaptiveOnlyTrustedCorrect;
+    var singleLineRows = rows.Where(row => row.Diagnostics?.Extraction?.DetectedLineCount <= 1).ToArray();
     var latencies = rows.Select(row => row.TotalOcr.TotalMilliseconds).Order().ToArray();
     var inference = rows.Where(row => row.PaddleInference is not null)
         .Select(row => row.PaddleInference!.Value.TotalMilliseconds).Order().ToArray();
@@ -480,14 +470,12 @@ static async Task<int> EvaluateProductionOcrAsync(
         .AppendLine()
         .AppendLine("> Paddle `rec_score` is uncalibrated diagnostic metadata. It is not `OcrConfidence` and never establishes trust by itself.")
         .AppendLine()
-        .AppendLine($"- Runtime: Windows native Python; model `{runtime.ModelName}`; PaddleOCR `{runtime.PaddleOcrVersion}`; PaddlePaddle `{runtime.PaddlePaddleVersion}`; device `{runtime.ActiveDevice}`.")
+        .AppendLine($"- Runtime: Windows native Python; models `{runtime.DetectorModel}` + `{runtime.RecognizerModel}`; PaddleOCR `{runtime.PaddleOcrVersion}`; PaddlePaddle `{runtime.PaddlePaddleVersion}`; device `{runtime.ActiveDevice}`.")
         .AppendLine($"- Worker startup: {runtime.StartupElapsed.TotalMilliseconds:F1} ms; warmup: {runtime.WarmupElapsed.TotalMilliseconds:F1} ms.")
         .AppendLine($"- Overall raw exact: {rawExact}/{rows.Count}; normalized exact: {normalizedExact}/{rows.Count}.")
         .AppendLine($"- Semantic-ready coverage: {trusted}/{rows.Count}; trusted-wrong: {trustedWrong}.")
         .AppendLine(
-            $"- Single-line semantic-ready coverage: routed {singleLineRows.Count(row => row.IsTrustedForSemantics)}/{singleLineRows.Length}; " +
-            $"same-crop Adaptive-only baseline {adaptiveOnlySemanticReadyRows.Length}/{singleLineRows.Length} " +
-            $"({adaptiveOnlyTrustedCorrect} correct, {adaptiveOnlyTrustedWrong} wrong).")
+            $"- Whole-bubble (0/1 detected lines) semantic-ready: {singleLineRows.Count(row => row.IsTrustedForSemantics)}/{singleLineRows.Length}. No normal secondary engine; trust calibration is deferred.")
         .AppendLine($"- Polarity/negation: {polarityRows.Length - polarityErrors}/{polarityRows.Length} normalized exact; errors: {polarityErrors}.")
         .AppendLine(
             $"- Acceptance-corpus gate: {(acceptanceCorpusReady ? "ready" : "incomplete")}; " +
@@ -548,9 +536,6 @@ static async Task<int> EvaluateProductionOcrAsync(
                     paddle_inference_p50_ms = Percentile(inference, 0.50),
                     paddle_inference_p95_ms = Percentile(inference, 0.95),
                     single_line_semantic_ready = singleLineRows.Count(row => row.IsTrustedForSemantics),
-                    single_line_adaptive_only_semantic_ready = adaptiveOnlySemanticReadyRows.Length,
-                    single_line_adaptive_only_trusted_correct = adaptiveOnlyTrustedCorrect,
-                    single_line_adaptive_only_trusted_wrong = adaptiveOnlyTrustedWrong,
                     by_route = routeSummaries,
                 },
                 rows,
@@ -651,7 +636,7 @@ static async Task<int> CollectOcrCalibrationAsync(
             Group: "phase4.5-real",
             CaptureDpi: window.Dpi.X,
             DpiScale: window.Dpi.ScaleX,
-            OcrRoute: new ScaleAwareOcrRoutingPolicy().SelectRoute(crop).ToString(),
+            OcrRoute: OcrRoute.PaddleUnified.ToString(),
             Monitor: window.Monitor.DeviceName));
     }
 
@@ -720,7 +705,7 @@ static async Task<int> ObserveWeChatAsync(string[] arguments)
     {
         var runtime = await paddleWorker.InitializeAsync(CancellationToken.None);
         Console.WriteLine(
-            $"Paddle READY model={runtime.ModelName} paddleocr={runtime.PaddleOcrVersion} " +
+            $"Paddle READY detector_model={runtime.DetectorModel} recognizer_model={runtime.RecognizerModel} paddleocr={runtime.PaddleOcrVersion} " +
             $"paddle={runtime.PaddlePaddleVersion} requested_device={runtime.RequestedDevice} " +
             $"active_device={runtime.ActiveDevice} worker_startup_ms={runtime.StartupElapsed.TotalMilliseconds:F1} " +
             $"worker_warmup_ms={runtime.WarmupElapsed.TotalMilliseconds:F1}");
@@ -731,15 +716,14 @@ static async Task<int> ObserveWeChatAsync(string[] arguments)
             $"Paddle worker unavailable ({exception.Message}); observer will use Adaptive OCR fallback.");
     }
 
-    var routedOcr = new RoutedOcrEngine(
-        new ScaleAwareOcrRoutingPolicy(),
+    var unifiedOcr = new UnifiedPaddleOcrEngine(
         new PaddleRecognitionOcrEngine(paddleWorker),
         adaptive,
         productionOcrCounters);
     IMessageObserver observer = new MessageObserver(
         new DarkThemeChatRegionLocator(),
         new DarkThemeBubbleDetector(),
-        routedOcr,
+        unifiedOcr,
         new ChatRoiChangeDetector(),
         new VisualConversationIdentityProvider());
 
@@ -756,7 +740,7 @@ static async Task<int> ObserveWeChatAsync(string[] arguments)
             Console.WriteLine(
                 $"[epoch {eventArgs.Message.ConversationEpochId}] {eventArgs.Message.Origin.ToString().ToLowerInvariant()} " +
                 $"{eventArgs.Message.Side} {DiagnosticText(eventArgs.Message, debugText)} " +
-                $"status={eventArgs.Message.OcrStatus} semantic_ready={eventArgs.Message.IsTrustedForSemantics.ToString().ToLowerInvariant()}");
+                $"status={eventArgs.Message.OcrStatus} semantic_ready={eventArgs.Message.IsTrustedForSemantics.ToString().ToLowerInvariant()} {ExtractionDiagnostic(eventArgs.Message)}");
         }
     };
     observer.NewMessageObserved += (_, eventArgs) =>
@@ -764,7 +748,7 @@ static async Task<int> ObserveWeChatAsync(string[] arguments)
         Console.WriteLine(
             $"[epoch {eventArgs.Message.ConversationEpochId}] NEW {eventArgs.Message.Side} " +
             $"{DiagnosticText(eventArgs.Message, debugText)} id={eventArgs.Message.Id} " +
-            $"status={eventArgs.Message.OcrStatus} semantic_ready={eventArgs.Message.IsTrustedForSemantics.ToString().ToLowerInvariant()}");
+            $"status={eventArgs.Message.OcrStatus} semantic_ready={eventArgs.Message.IsTrustedForSemantics.ToString().ToLowerInvariant()} {ExtractionDiagnostic(eventArgs.Message)}");
     };
 
     using var cancellation = new CancellationTokenSource();
@@ -897,13 +881,25 @@ static void PrintProductionOcrCounters(
     Console.WriteLine($"paddle_inference_ms={counters.PaddleInference.TotalMilliseconds:F1}");
     Console.WriteLine($"paddle_roundtrip_ms={counters.PaddleRoundtrip.TotalMilliseconds:F1}");
     Console.WriteLine(
-        $"paddle_transport_ms={Math.Max(0, (counters.PaddleRoundtrip - counters.PaddleInference).TotalMilliseconds):F1}");
+        $"paddle_transport_ms={Math.Max(0, (counters.PaddleRoundtrip - counters.PaddleWorkerTotal).TotalMilliseconds):F1}");
     if (runtime is not null)
     {
         Console.WriteLine($"worker_startup_ms={runtime.StartupElapsed.TotalMilliseconds:F1}");
         Console.WriteLine($"worker_warmup_ms={runtime.WarmupElapsed.TotalMilliseconds:F1}");
         Console.WriteLine($"paddle_active_device={runtime.ActiveDevice}");
     }
+}
+
+static string ExtractionDiagnostic(ObservedMessage message)
+{
+    var diagnostics = message.OcrDiagnostics;
+    var extraction = diagnostics?.Extraction;
+    return $"detected_lines={extraction?.DetectedLineCount.ToString() ?? "n/a"} " +
+        $"ocr_ms={diagnostics?.TotalElapsed.TotalMilliseconds:F1} " +
+        $"detection_ms={extraction?.DetectionElapsed.TotalMilliseconds:F1} " +
+        $"recognition_ms={extraction?.RecognitionElapsed.TotalMilliseconds:F1} " +
+        $"adaptive_fallback={diagnostics?.RuntimeFallback.ToString().ToLowerInvariant()} " +
+        $"quote_separation_unverified={diagnostics?.QuoteSeparationUnverified.ToString().ToLowerInvariant()}";
 }
 
 static string DiagnosticText(ObservedMessage message, bool debugText)
