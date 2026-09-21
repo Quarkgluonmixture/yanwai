@@ -1,8 +1,7 @@
 # WeChat × Jev Conversation HUD
 
-This checkout implements accepted Phases 0–3 and the Phase 4 message-observer
-candidate awaiting manual acceptance. It does not implement Jev calls or the HUD
-overlay.
+This checkout implements accepted Phases 0–4. It does not implement Phase 5 Jev
+calls or the HUD overlay.
 
 ## What is available
 
@@ -11,6 +10,9 @@ overlay.
 - `WeChatJevHud.Vision`: capture-relative chat ROI location, `Remote`/`Self`/`Unknown` text-bubble detection, heuristic detection scores, timing, and annotated debug rendering.
 - Replaceable interfaces for window tracking, capture, bubble detection, OCR, Jev, and overlay rendering.
 - `WeChatJevHud.Ocr.Windows` and `WeChatJevHud.Ocr.Tesseract`: crop-only Simplified Chinese/English OCR adapters, explicit nullable `OcrConfidence`, low-confidence status, preprocessing variants, and an adaptive candidate policy.
+- `WeChatJevHud.Observer`: in-memory change detection, conversation epochs, ordered
+  visible-message reconciliation, duplicate suppression, and Bootstrap/History/LiveNew
+  observation state.
 - Per-Monitor DPI Awareness V2 manifests for both runnable programs.
 
 The Phase 1 capture adapter first asks WeChat's `MMUIRenderSubWindow*` child to paint into an off-screen bitmap. If that path is unavailable, it falls back to copying the visible desktop pixels occupied by the render/client bounds and reports `VisibleDesktopFallback`; that fallback requires WeChat to be unobscured. WeChat must always be restored for an explicit capture. This is the deliberately small capture spike permitted by `docs/SPEC.md`; a Windows Graphics Capture adapter can replace it later without changing callers.

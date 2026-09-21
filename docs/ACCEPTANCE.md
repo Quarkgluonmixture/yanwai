@@ -249,13 +249,13 @@ Final Phase 3 conclusions:
 
 The user supplied and accepted the real English-bubble test as the final manual gate.
 The corrected 18-crop evaluation completed successfully, so Phase 3 is PASS. Phase 4
-remains unimplemented and must begin separately after this PR is merged.
+began separately after the Phase 3 PR was merged.
 
 ---
 
 ## Phase 4 — New-message observer and conversation state
 
-**Status: POST-SWITCH BASELINE FIX IMPLEMENTED — awaiting repeat manual acceptance on real WeChat.**
+**Status: PASS — automated and real-machine manual acceptance complete.**
 
 ### Goal
 
@@ -363,32 +363,22 @@ Blocking manual evidence from the third acceptance attempt:
   existing target message rendered afterward was incorrectly emitted as `NEW`;
 - the cause was treating the confirming empty transition frame as an established empty
   baseline. The post-switch baseline fix now waits for a non-empty initial snapshot or
-  a stable-empty settle gate and still needs the exact real-machine transition retest.
+  a stable-empty settle gate. At that point, the exact real-machine transition still
+  required retesting.
 
-Manual exit gate:
+Final manual acceptance evidence (2026-09-21):
 
-Run `.\scripts\observe.ps1 -DebugText` in a safe chat, then verify the baseline fix
-without regressing the accepted identity behavior:
-
-1. start in chat A and record the epoch;
-2. resize WeChat narrower and wider several times;
-3. drag it from the 150% laptop display to the 100% external display and back while
-   remaining in chat A;
-4. confirm the epoch stays unchanged, state remains intact, known messages do not
-   repeatedly OCR/bootstrap, and no `NEW` replay appears;
-5. switch to a non-empty chat B and confirm `PendingSwitch` -> exactly one
-   `ConfirmedSwitch` -> epoch +1;
-6. if WeChat briefly renders zero bubbles, confirm diagnostics show
-   `awaiting initial snapshot` and the first existing chat-B messages are Bootstrap,
-   with zero `NEW` events and no old-state mixing;
-7. remain in chat B and confirm no further epoch increment;
-8. switch back to chat A and confirm `PendingSwitch` -> exactly one
-   `ConfirmedSwitch` -> epoch +1 again, with no replay storm;
-9. confirm diagnostics separately report strong/weak previous-visible overlap, trusted
-   text overlap, strong/weak live-tail match, and history-only matches;
-10. repeat the original idle/new-message/repeated-`好`/scroll/minimize-restore checks.
-
-Do not mark Phase 4 PASS or begin Phase 5 until this workflow is manually accepted.
+- the earlier real-machine run retained one epoch through same-conversation resize and
+  150%/100% DPI moves;
+- each genuine switch followed `PendingSwitch` 1/3 -> 2/3 -> exactly one
+  `ConfirmedSwitch`, and switch-back created exactly one further epoch;
+- `AwaitingInitialSnapshot` settled before baseline establishment, while existing
+  target history remained Bootstrap and produced no `NEW` replay;
+- neither switch produced a replay storm, and duplicate suppression remained stable;
+- uncertain OCR remained observable with `semantic_ready=false`;
+- the final inspected run recorded two confirmed switches, zero emitted/new messages,
+  and no epoch churn. The user accepted the complete real-machine workflow, so Phase 4
+  is PASS. Phase 5 remains separate and unimplemented.
 
 ---
 
