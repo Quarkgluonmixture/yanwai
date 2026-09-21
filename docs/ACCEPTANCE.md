@@ -255,7 +255,7 @@ remains unimplemented and must begin separately after this PR is merged.
 
 ## Phase 4 — New-message observer and conversation state
 
-**Status: SECOND IDENTITY FIX IMPLEMENTED — awaiting repeat manual acceptance on real WeChat.**
+**Status: POST-SWITCH BASELINE FIX IMPLEMENTED — awaiting repeat manual acceptance on real WeChat.**
 
 ### Goal
 
@@ -286,7 +286,7 @@ Automated evidence:
 - a minimize/restore-equivalent capture suspension retains reconciliation state and
   does not replay the restored frame;
 - `LowConfidence` OCR remains observable but has `IsTrustedForSemantics = false`;
-- message-count limits are configurable and enforced.
+- message-count limits are configurable and enforced;
 - slight header rerendering, wider/narrower resize, simulated 150%/100% DPI scaling,
   and gradual multi-frame resize retain one epoch;
 - six strict matches against the immediately previous visible snapshot survive resize
@@ -303,7 +303,22 @@ Automated evidence:
 - a same-size chat-ROI change starts a layout transition;
 - returning to the accepted identity interrupts and resets a pending switch;
 - replacing one pending candidate with another does not reuse the first candidate's
-  cached OCR.
+  cached OCR;
+- a confirmed switch followed by one or more transitional empty frames keeps the new
+  epoch in `AwaitingInitialSnapshot`; when existing target history appears, it is
+  Bootstrap and emits zero `NEW` events;
+- incrementally rendered non-empty target history remains Bootstrap until two
+  consecutive strongly equivalent snapshots establish the baseline, and the final
+  bootstrap tail still anchors a subsequent live append;
+- a genuinely empty switched conversation establishes an empty baseline only after
+  the configurable stable-empty gate (three observations by default);
+- if a provisional non-empty snapshot precedes that stable-empty result, its staged
+  messages and tail are discarded before the empty baseline is established;
+- after that genuine empty baseline, the first later message emits exactly one `NEW`;
+- temporary zero-bubble frames during a same-conversation layout transition neither
+  change the epoch nor reset the established baseline;
+- existing normal non-empty switch behavior remains covered by the three-observation
+  confirmation and switch-back regression tests.
 
 Real-machine diagnostic evidence before manual acceptance:
 - a six-second redacted run checked 20 captured frames;
@@ -336,11 +351,24 @@ Blocking manual evidence from the second acceptance attempt:
   2/5, 4/7, and 3/4 without live-tail matches;
 - the cause was treating permissive perceptual matches against the entire 25-message
   history as strong identity evidence. The second fix separates strong previous-visible
-  continuity from weak visual/history alignment and still needs real-machine validation.
+  continuity from weak visual/history alignment.
+
+Blocking manual evidence from the third acceptance attempt:
+- same-chat resize and cross-DPI behavior passed without epoch churn;
+- normal non-empty conversation switches followed
+  `pending_switch=1/3` -> `pending_switch=2/3` -> one confirmed epoch increment, and
+  visible target history was bootstrap-only;
+- weak visual overlap no longer suppressed a genuine switch;
+- one switch confirmed while WeChat temporarily showed zero bubbles, and the first
+  existing target message rendered afterward was incorrectly emitted as `NEW`;
+- the cause was treating the confirming empty transition frame as an established empty
+  baseline. The post-switch baseline fix now waits for a non-empty initial snapshot or
+  a stable-empty settle gate and still needs the exact real-machine transition retest.
 
 Manual exit gate:
 
-Run `.\scripts\observe.ps1 -DebugText` in a safe chat, then verify the identity fix:
+Run `.\scripts\observe.ps1 -DebugText` in a safe chat, then verify the baseline fix
+without regressing the accepted identity behavior:
 
 1. start in chat A and record the epoch;
 2. resize WeChat narrower and wider several times;
@@ -348,14 +376,17 @@ Run `.\scripts\observe.ps1 -DebugText` in a safe chat, then verify the identity 
    remaining in chat A;
 4. confirm the epoch stays unchanged, state remains intact, known messages do not
    repeatedly OCR/bootstrap, and no `NEW` replay appears;
-5. switch to chat B and confirm `PendingSwitch` -> exactly one `ConfirmedSwitch` ->
-   epoch +1; its visible messages bootstrap with no old-state mixing;
-6. remain in chat B and confirm no further epoch increment;
-7. switch back to chat A and confirm `PendingSwitch` -> exactly one
+5. switch to a non-empty chat B and confirm `PendingSwitch` -> exactly one
+   `ConfirmedSwitch` -> epoch +1;
+6. if WeChat briefly renders zero bubbles, confirm diagnostics show
+   `awaiting initial snapshot` and the first existing chat-B messages are Bootstrap,
+   with zero `NEW` events and no old-state mixing;
+7. remain in chat B and confirm no further epoch increment;
+8. switch back to chat A and confirm `PendingSwitch` -> exactly one
    `ConfirmedSwitch` -> epoch +1 again, with no replay storm;
-8. confirm diagnostics separately report strong/weak previous-visible overlap, trusted
+9. confirm diagnostics separately report strong/weak previous-visible overlap, trusted
    text overlap, strong/weak live-tail match, and history-only matches;
-9. repeat the original idle/new-message/repeated-`好`/scroll/minimize-restore checks.
+10. repeat the original idle/new-message/repeated-`好`/scroll/minimize-restore checks.
 
 Do not mark Phase 4 PASS or begin Phase 5 until this workflow is manually accepted.
 

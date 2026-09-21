@@ -298,6 +298,278 @@ public sealed class MessageObserverTests
     }
 
     [Fact]
+    public async Task Existing_history_one_frame_after_confirmed_empty_switch_is_bootstrap()
+    {
+        var chatA = Bubble(12, 60, 80, MessageSide.Remote);
+        var chatBHistory = Bubble(12, 60, 120, MessageSide.Remote);
+        var detector = new StubBubbleDetector([chatA], [], [], [], [chatBHistory]);
+        var ocr = new StubOcrEngine(Ocr("chat-a"), Ocr("existing-chat-b-history"));
+        var identity = new StubConversationIdentityProvider(
+            Identity(1), Identity(2), Identity(2), Identity(2), Identity(2));
+        var observer = CreateObserver(detector, ocr, identityProvider: identity);
+
+        await observer.ObserveAsync(
+            Frame(10, [(chatA.Bounds, (byte)80)]),
+            CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        var switched = await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        var historyAppeared = await observer.ObserveAsync(
+            Frame(30, [(chatBHistory.Bounds, (byte)120)]),
+            CancellationToken.None);
+
+        Assert.Equal(ConversationIdentityDecision.ConfirmedSwitch, switched.Identity.Decision);
+        Assert.Equal(2, switched.Epoch.Id);
+        Assert.Empty(switched.MessagesObserved);
+        Assert.Empty(switched.NewMessages);
+        var history = Assert.Single(historyAppeared.MessagesObserved);
+        Assert.Equal(MessageObservationKind.Bootstrap, history.Origin);
+        Assert.Empty(historyAppeared.NewMessages);
+        Assert.Equal(0, historyAppeared.Counters.MessagesEmitted);
+    }
+
+    [Fact]
+    public async Task Existing_history_after_an_additional_temporary_empty_frame_is_bootstrap()
+    {
+        var chatA = Bubble(12, 60, 80, MessageSide.Remote);
+        var chatBHistory = Bubble(12, 60, 120, MessageSide.Remote);
+        var detector = new StubBubbleDetector([chatA], [], [], [], [], [chatBHistory], [chatBHistory]);
+        var ocr = new StubOcrEngine(Ocr("chat-a"), Ocr("existing-chat-b-history"));
+        var identity = new StubConversationIdentityProvider(
+            Identity(1), Identity(2), Identity(2), Identity(2), Identity(2), Identity(2), Identity(2));
+        var observer = CreateObserver(detector, ocr, identityProvider: identity);
+
+        await observer.ObserveAsync(
+            Frame(10, [(chatA.Bounds, (byte)80)]),
+            CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        var switched = await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        var stillEmpty = await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        var historyAppeared = await observer.ObserveAsync(
+            Frame(30, [(chatBHistory.Bounds, (byte)120)]),
+            CancellationToken.None);
+        var stable = await observer.ObserveAsync(
+            Frame(30, [(chatBHistory.Bounds, (byte)120)]),
+            CancellationToken.None);
+
+        Assert.Equal(ConversationBaselineState.AwaitingInitialSnapshot, switched.Baseline.State);
+        Assert.Equal(1, switched.Baseline.EmptyObservations);
+        Assert.Equal(ConversationBaselineState.AwaitingInitialSnapshot, stillEmpty.Baseline.State);
+        Assert.Equal(2, stillEmpty.Baseline.EmptyObservations);
+        var history = Assert.Single(historyAppeared.MessagesObserved);
+        Assert.Equal(MessageObservationKind.Bootstrap, history.Origin);
+        Assert.Empty(historyAppeared.NewMessages);
+        Assert.Equal(ConversationBaselineState.AwaitingInitialSnapshot, historyAppeared.Baseline.State);
+        Assert.Equal(ConversationBaselineState.Established, stable.Baseline.State);
+        Assert.True(stable.Baseline.EstablishedThisFrame);
+    }
+
+    [Fact]
+    public async Task Incrementally_rendered_target_history_remains_bootstrap_until_snapshot_is_stable()
+    {
+        var chatA = Bubble(12, 60, 80, MessageSide.Remote);
+        var firstHistory = Bubble(12, 60, 110, MessageSide.Remote);
+        var secondHistory = Bubble(12, 100, 140, MessageSide.Self);
+        var liveMessage = Bubble(12, 140, 180, MessageSide.Remote);
+        var detector = new StubBubbleDetector(
+            [chatA], [], [], [], [firstHistory], [firstHistory, secondHistory], [firstHistory, secondHistory],
+            [secondHistory, liveMessage]);
+        var ocr = new StubOcrEngine(Ocr("chat-a"), Ocr("history-1"), Ocr("history-2"), Ocr("live"));
+        var identity = new StubConversationIdentityProvider(
+            Identity(1), Identity(2), Identity(2), Identity(2),
+            Identity(2), Identity(2), Identity(2), Identity(2));
+        var observer = CreateObserver(detector, ocr, identityProvider: identity);
+
+        await observer.ObserveAsync(
+            Frame(10, [(chatA.Bounds, (byte)80)]),
+            CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        var partial = await observer.ObserveAsync(
+            Frame(30, [(firstHistory.Bounds, (byte)110)]),
+            CancellationToken.None);
+        var complete = await observer.ObserveAsync(
+            Frame(30, [(firstHistory.Bounds, (byte)110), (secondHistory.Bounds, (byte)140)]),
+            CancellationToken.None);
+        var stable = await observer.ObserveAsync(
+            Frame(30, [(firstHistory.Bounds, (byte)110), (secondHistory.Bounds, (byte)140)]),
+            CancellationToken.None);
+        var appended = await observer.ObserveAsync(
+            Frame(
+                30,
+                [
+                    (secondHistory.Bounds, (byte)140),
+                    (liveMessage.Bounds, (byte)180),
+                ]),
+            CancellationToken.None);
+
+        Assert.Equal(MessageObservationKind.Bootstrap, Assert.Single(partial.MessagesObserved).Origin);
+        Assert.Equal(ConversationBaselineState.AwaitingInitialSnapshot, partial.Baseline.State);
+        Assert.NotEmpty(complete.MessagesObserved);
+        Assert.All(
+            complete.MessagesObserved,
+            message => Assert.Equal(MessageObservationKind.Bootstrap, message.Origin));
+        Assert.Empty(complete.NewMessages);
+        Assert.Equal(ConversationBaselineState.AwaitingInitialSnapshot, complete.Baseline.State);
+        Assert.Equal(ConversationBaselineState.Established, stable.Baseline.State);
+        Assert.True(stable.Baseline.EstablishedThisFrame);
+        Assert.Empty(stable.NewMessages);
+        Assert.True(
+            appended.NewMessages.Count == 1,
+            $"observed={string.Join(',', appended.MessagesObserved.Select(message => $"{message.NormalizedText}:{message.Origin}"))}; " +
+            $"duplicates={string.Join(',', appended.DuplicateMessageIds)}; " +
+            $"state={string.Join(',', observer.State.Messages.Select(message => $"{message.NormalizedText}:{message.IsVisible}"))}");
+        var emitted = appended.NewMessages[0];
+        Assert.Equal("live", emitted.NormalizedText);
+        Assert.Equal(MessageObservationKind.LiveNew, emitted.Origin);
+        Assert.Equal(1, appended.Counters.MessagesEmitted);
+    }
+
+    [Fact]
+    public async Task Stable_empty_baseline_discards_provisional_nonempty_snapshot_before_first_live_message()
+    {
+        var chatA = Bubble(12, 60, 80, MessageSide.Remote);
+        var provisional = Bubble(12, 60, 110, MessageSide.Remote);
+        var liveMessage = Bubble(12, 60, 180, MessageSide.Remote);
+        var detector = new StubBubbleDetector(
+            [chatA], [], [], [], [provisional], [], [], [], [liveMessage]);
+        var ocr = new StubOcrEngine(Ocr("chat-a"), Ocr("provisional"), Ocr("live"));
+        var identity = new StubConversationIdentityProvider(
+            Identity(1), Identity(2), Identity(2), Identity(2), Identity(2),
+            Identity(2), Identity(2), Identity(2), Identity(2));
+        var observer = CreateObserver(detector, ocr, identityProvider: identity);
+
+        await observer.ObserveAsync(
+            Frame(10, [(chatA.Bounds, (byte)80)]),
+            CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        var provisionalSnapshot = await observer.ObserveAsync(
+            Frame(30, [(provisional.Bounds, (byte)110)]),
+            CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        var emptyBaseline = await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        var live = await observer.ObserveAsync(
+            Frame(30, [(liveMessage.Bounds, (byte)180)]),
+            CancellationToken.None);
+
+        Assert.Equal(
+            MessageObservationKind.Bootstrap,
+            Assert.Single(provisionalSnapshot.MessagesObserved).Origin);
+        Assert.True(emptyBaseline.Baseline.EstablishedThisFrame);
+        Assert.DoesNotContain(
+            observer.State.Messages,
+            message => message.NormalizedText == "provisional");
+        var emitted = Assert.Single(live.NewMessages);
+        Assert.Equal("live", emitted.NormalizedText);
+        Assert.Equal(MessageObservationKind.LiveNew, emitted.Origin);
+        Assert.Equal(1, live.Counters.MessagesEmitted);
+    }
+
+    [Fact]
+    public async Task Confirmed_switch_to_stably_empty_conversation_establishes_empty_baseline()
+    {
+        var chatA = Bubble(12, 60, 80, MessageSide.Remote);
+        var detector = new StubBubbleDetector([chatA], [], [], [], [], []);
+        var ocr = new StubOcrEngine(Ocr("chat-a"));
+        var identity = new StubConversationIdentityProvider(
+            Identity(1), Identity(2), Identity(2), Identity(2), Identity(2), Identity(2));
+        var observer = CreateObserver(detector, ocr, identityProvider: identity);
+
+        await observer.ObserveAsync(
+            Frame(10, [(chatA.Bounds, (byte)80)]),
+            CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        var switched = await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        var settling = await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        var established = await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+
+        Assert.Equal(ConversationBaselineState.AwaitingInitialSnapshot, switched.Baseline.State);
+        Assert.Equal(1, switched.Baseline.EmptyObservations);
+        Assert.Equal(ConversationBaselineState.AwaitingInitialSnapshot, settling.Baseline.State);
+        Assert.Equal(2, settling.Baseline.EmptyObservations);
+        Assert.Equal(ConversationBaselineState.Established, established.Baseline.State);
+        Assert.Equal(3, established.Baseline.EmptyObservations);
+        Assert.True(established.Baseline.EstablishedThisFrame);
+        Assert.Empty(established.MessagesObserved);
+        Assert.Empty(established.NewMessages);
+        Assert.Equal(2, established.Epoch.Id);
+    }
+
+    [Fact]
+    public async Task Empty_baseline_settle_observation_count_is_configurable()
+    {
+        var chatA = Bubble(12, 60, 80, MessageSide.Remote);
+        var detector = new StubBubbleDetector([chatA], [], [], [], []);
+        var ocr = new StubOcrEngine(Ocr("chat-a"));
+        var identity = new StubConversationIdentityProvider(
+            Identity(1), Identity(2), Identity(2), Identity(2), Identity(2));
+        var observer = CreateObserver(
+            detector,
+            ocr,
+            new ObserverOptions(EmptyBaselineRequiredObservations: 2),
+            identity);
+
+        await observer.ObserveAsync(
+            Frame(10, [(chatA.Bounds, (byte)80)]),
+            CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        var switched = await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        var established = await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+
+        Assert.Equal(ConversationBaselineState.AwaitingInitialSnapshot, switched.Baseline.State);
+        Assert.Equal(1, switched.Baseline.EmptyObservations);
+        Assert.Equal(2, switched.Baseline.RequiredEmptyObservations);
+        Assert.Equal(ConversationBaselineState.Established, established.Baseline.State);
+        Assert.Equal(2, established.Baseline.EmptyObservations);
+        Assert.True(established.Baseline.EstablishedThisFrame);
+    }
+
+    [Fact]
+    public async Task First_message_after_settled_empty_switched_conversation_emits_once()
+    {
+        var chatA = Bubble(12, 60, 80, MessageSide.Remote);
+        var firstLiveMessage = Bubble(12, 60, 120, MessageSide.Remote);
+        var detector = new StubBubbleDetector(
+            [chatA], [], [], [], [], [], [firstLiveMessage], [firstLiveMessage]);
+        var ocr = new StubOcrEngine(Ocr("chat-a"), Ocr("first-live-message"));
+        var identity = new StubConversationIdentityProvider(
+            Identity(1),
+            Identity(2), Identity(2), Identity(2), Identity(2), Identity(2), Identity(2), Identity(2));
+        var observer = CreateObserver(detector, ocr, identityProvider: identity);
+
+        await observer.ObserveAsync(
+            Frame(10, [(chatA.Bounds, (byte)80)]),
+            CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        var emptyBaseline = await observer.ObserveAsync(Frame(30, []), CancellationToken.None);
+        var live = await observer.ObserveAsync(
+            Frame(30, [(firstLiveMessage.Bounds, (byte)120)]),
+            CancellationToken.None);
+        var stable = await observer.ObserveAsync(
+            Frame(30, [(firstLiveMessage.Bounds, (byte)120)]),
+            CancellationToken.None);
+
+        Assert.Equal(ConversationBaselineState.Established, emptyBaseline.Baseline.State);
+        Assert.True(emptyBaseline.Baseline.EstablishedThisFrame);
+        var message = Assert.Single(live.NewMessages);
+        Assert.Equal(MessageObservationKind.LiveNew, message.Origin);
+        Assert.Equal("first-live-message", message.NormalizedText);
+        Assert.Empty(stable.NewMessages);
+        Assert.Equal(1, stable.Counters.MessagesEmitted);
+        Assert.Equal(2, ocr.Calls);
+    }
+
+    [Fact]
     public async Task Same_conversation_with_changed_header_rendering_keeps_the_epoch()
     {
         var bubble = Bubble(12, 60, 80, MessageSide.Remote);
@@ -756,6 +1028,51 @@ public sealed class MessageObserverTests
         Assert.True(resizing.Identity.LiveTailWeakMatch);
         Assert.Equal(1, resizing.Epoch.Id);
         Assert.Equal(1, ocr.Calls);
+    }
+
+    [Fact]
+    public async Task Same_conversation_layout_transition_with_empty_frames_does_not_reset_baseline()
+    {
+        var baselineBubble = new DetectedBubble(
+            new CapturePixelRect(12, 60, 40, 24),
+            MessageSide.Remote,
+            0.95);
+        var resizedBubble = new DetectedBubble(
+            new CapturePixelRect(18, 90, 60, 36),
+            MessageSide.Remote,
+            0.95);
+        var detector = new StubBubbleDetector(
+            [baselineBubble], [], [], [], [resizedBubble]);
+        var ocr = new StubOcrEngine(Ocr("existing-message"));
+        var identity = new StubConversationIdentityProvider(
+            Identity(1), Identity(2), Identity(2), Identity(2), Identity(2));
+        var observer = CreateObserver(detector, ocr, identityProvider: identity);
+
+        var baseline = await observer.ObserveAsync(
+            Frame(200, 200, 10, [(baselineBubble.Bounds, (byte)80)]),
+            CancellationToken.None);
+        var emptyResize = await observer.ObserveAsync(
+            Frame(300, 300, 30, []),
+            CancellationToken.None);
+        var emptySettling = await observer.ObserveAsync(
+            Frame(300, 300, 30, []),
+            CancellationToken.None);
+        var emptySettled = await observer.ObserveAsync(
+            Frame(300, 300, 30, []),
+            CancellationToken.None);
+        var returned = await observer.ObserveAsync(
+            Frame(300, 300, 30, [(resizedBubble.Bounds, (byte)80)]),
+            CancellationToken.None);
+
+        Assert.Equal(ConversationBaselineState.Established, baseline.Baseline.State);
+        Assert.Equal(ConversationBaselineState.Established, emptyResize.Baseline.State);
+        Assert.Equal(ConversationBaselineState.Established, emptySettling.Baseline.State);
+        Assert.Equal(ConversationBaselineState.Established, emptySettled.Baseline.State);
+        Assert.Equal(1, returned.Epoch.Id);
+        Assert.Equal(0, returned.Counters.ConversationSwitches);
+        Assert.Empty(returned.MessagesObserved);
+        Assert.Empty(returned.NewMessages);
+        Assert.Equal(2, ocr.Calls);
     }
 
     [Fact]

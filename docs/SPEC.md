@@ -366,7 +366,17 @@ Without strong previous-visible continuity, the same candidate must remain stabl
 three observations before a switch is confirmed. The first two observations remain
 pending and do not mutate the current conversation state or emit messages; pending OCR
 is reused only within that candidate identity. A confirmed switch clears the old state
-exactly once and bootstraps the candidate view.
+exactly once and enters `AwaitingInitialSnapshot`. An empty viewport on the confirming
+frame is not an established empty baseline because WeChat may still be rendering the
+target conversation. A non-empty visible snapshot must remain strongly visually
+equivalent for two consecutive observations by default before it establishes the
+baseline; messages discovered throughout this settling interval remain Bootstrap. If
+the viewport instead remains empty for three stable observations by default, the
+observer establishes a genuine empty baseline; a message arriving afterward may then
+be LiveNew. Both gates are configurable through `ObserverOptions`. Identical frames
+continue through detection only during this short settling gate. Finalization rebases
+the live-tail anchor to the stable non-empty snapshot, while empty finalization
+discards any provisional non-empty settling state.
 
 Frame dimensions or chat-ROI changes start a layout transition. A transition requires
 two stable-layout observations before weak/no-overlap evidence may advance a switch.

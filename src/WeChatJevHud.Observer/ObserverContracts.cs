@@ -42,6 +42,8 @@ public sealed record ObserverOptions(
     int RecentMessageLimit = 25,
     int PendingSwitchRequiredObservations = 3,
     int LayoutStableObservations = 2,
+    int EmptyBaselineRequiredObservations = 3,
+    int InitialSnapshotRequiredObservations = 2,
     int BubbleMaxHammingDistance = 20,
     int BubbleMaxMeanLuminanceDifference = 8,
     int BubbleStrongMaxHammingDistance = 8,
@@ -72,6 +74,20 @@ public enum ConversationIdentityDecision
     PendingSwitch,
     ConfirmedSwitch,
 }
+
+public enum ConversationBaselineState
+{
+    AwaitingInitialSnapshot,
+    Established,
+}
+
+public sealed record ConversationBaselineObservation(
+    ConversationBaselineState State,
+    int InitialSnapshotObservations,
+    int RequiredInitialSnapshotObservations,
+    int EmptyObservations,
+    int RequiredEmptyObservations,
+    bool EstablishedThisFrame);
 
 public sealed record ConversationIdentityObservation(
     ConversationIdentityDecision Decision,
@@ -150,7 +166,8 @@ public sealed record ObservationResult(
     IReadOnlyList<string> DuplicateMessageIds,
     ObserverCounters Counters,
     ObserverTimings Timings,
-    ConversationIdentityObservation Identity);
+    ConversationIdentityObservation Identity,
+    ConversationBaselineObservation Baseline);
 
 public sealed class ConversationChangedEventArgs(
     ConversationEpoch? previousEpoch,

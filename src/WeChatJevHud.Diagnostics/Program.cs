@@ -366,6 +366,7 @@ static async Task<int> ObserveWeChatAsync(string[] arguments)
                     var frame = capture.Capture(window);
                     var result = await observer.ObserveAsync(frame, cancellation.Token);
                     PrintIdentityObservation(result.Identity);
+                    PrintBaselineObservation(result);
                     foreach (var id in result.DuplicateMessageIds)
                     {
                         Console.WriteLine($"[epoch {result.Epoch.Id}] duplicate suppressed id={id}");
@@ -499,6 +500,30 @@ static void PrintIdentityObservation(ConversationIdentityObservation identity)
             Console.WriteLine($"identity candidate changed {evidence} decision=CONFIRMED_SWITCH");
             break;
     }
+}
+
+static void PrintBaselineObservation(ObservationResult result)
+{
+    if (result.Baseline.State == ConversationBaselineState.AwaitingInitialSnapshot)
+    {
+        Console.WriteLine(
+            $"[epoch {result.Epoch.Id}] awaiting initial snapshot " +
+            $"non_empty_observations={result.Baseline.InitialSnapshotObservations}/" +
+            $"{result.Baseline.RequiredInitialSnapshotObservations} " +
+            $"empty_observations={result.Baseline.EmptyObservations}/" +
+            $"{result.Baseline.RequiredEmptyObservations}");
+        return;
+    }
+
+    if (!result.Baseline.EstablishedThisFrame)
+    {
+        return;
+    }
+
+    var kind = result.Baseline.EmptyObservations >= result.Baseline.RequiredEmptyObservations
+        ? "empty baseline established"
+        : "initial snapshot established";
+    Console.WriteLine($"[epoch {result.Epoch.Id}] {kind}");
 }
 
 static int? PositiveIntOption(string[] arguments, string option, int? defaultValue)

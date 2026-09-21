@@ -112,7 +112,12 @@ scale-tolerant perceptual comparison plus visible-message continuity and a three
 switch confirmation. Only strong continuity against the immediately previous visible
 snapshot can rebase a changed header; permissive visual/history matches are diagnostic
 evidence and cannot suppress a real switch. Resize/DPI layout transitions cannot
-immediately change epochs.
+immediately change epochs. After a confirmed switch, the observer waits for the first
+stable visible snapshot before establishing the new baseline. A transitional empty
+viewport therefore cannot replay subsequently rendered history as new; a genuinely
+empty conversation becomes the baseline only after three stable empty observations.
+Non-empty snapshots must remain visually stable for two consecutive observations, so
+incrementally rendered existing history remains Bootstrap throughout settling.
 Chat text is redacted by default. For an explicitly opted-in, truncated normalized-text
 diagnostic:
 

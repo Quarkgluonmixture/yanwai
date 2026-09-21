@@ -415,6 +415,17 @@ another identity implementation does not have to expose perceptual-hash internal
 the observer. Recent state is bounded and memory-only. Only non-empty `Recognized` OCR
 is semantic-ready.
 
+A confirmed switch enters `AwaitingInitialSnapshot` rather than accepting an empty
+transition frame as the new baseline. The first stable non-empty view is bootstrapped.
+A non-empty view is stable after two consecutive strongly equivalent observations by
+default, while all messages discovered during settling remain Bootstrap. A truly empty
+conversation is established only after a configurable stable-empty gate (three
+observations by default), after which its first later message may be live-new. Both
+gates are explicit options. The final stable non-empty snapshot supplies the live-tail
+anchor; finalizing an empty baseline clears provisional settling messages and tail.
+This baseline-settling state is separate from conversation-identity evidence: it fixes
+render timing without changing the strong/weak identity hierarchy.
+
 **Scrolling policy**
 
 The observer remembers the chronological live tail. Bubbles discovered before or away
@@ -434,7 +445,8 @@ without persistent chat logging.
 The identity policy deliberately prefers temporarily retaining the current epoch when
 evidence is ambiguous. This avoids false bootstrap/OCR storms during resize and
 per-monitor DPI rerendering. A confirmed different conversation still clears the old
-state once, bootstraps the new visible view, and emits no old messages as live-new.
+state once, waits for the target view to settle, bootstraps the new visible view, and
+emits no old messages as live-new.
 
 **Rejected alternatives**
 

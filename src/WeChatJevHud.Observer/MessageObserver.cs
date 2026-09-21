@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using WeChatJevHud.Capture;
 using WeChatJevHud.Core.Geometry;
+using WeChatJevHud.Core.Messages;
 using WeChatJevHud.Ocr;
 using WeChatJevHud.Vision;
 
@@ -36,6 +37,11 @@ public sealed class MessageObserver : IMessageObserver
     private long _identitySwitchesSuppressed;
     private long _layoutTransitions;
     private bool _baselineEstablished;
+    private bool _awaitingInitialSnapshot;
+    private IReadOnlyList<InitialSnapshotCandidate> _initialSnapshotCandidates = [];
+    private int _initialSnapshotObservations;
+    private int _emptyBaselineObservations;
+    private bool _baselineEstablishedThisFrame;
     private string? _liveTailId;
     private PendingConversationSwitch? _pendingSwitch;
     private bool _layoutTransitionActive;
@@ -62,6 +68,8 @@ public sealed class MessageObserver : IMessageObserver
 
         if (_options.PendingSwitchRequiredObservations < 2 ||
             _options.LayoutStableObservations < 1 ||
+            _options.EmptyBaselineRequiredObservations < 1 ||
+            _options.InitialSnapshotRequiredObservations < 1 ||
             _options.BubbleMaxHammingDistance is < 0 or > 128 ||
             _options.BubbleMaxMeanLuminanceDifference is < 0 or > 255 ||
             _options.BubbleStrongMaxHammingDistance is < 0 or > 128 ||
@@ -103,6 +111,7 @@ public sealed class MessageObserver : IMessageObserver
         cancellationToken.ThrowIfCancellationRequested();
         var frameTimer = Stopwatch.StartNew();
         _framesChecked++;
+        _baselineEstablishedThisFrame = false;
 
         var previousChatRegion = _chatRegion;
         var dimensionsChanged = _frameWidth != frame.Width || _frameHeight != frame.Height;
@@ -121,7 +130,7 @@ public sealed class MessageObserver : IMessageObserver
                                         !IdentityMatches(
                                             _conversationIdentityProvider.Compare(_epoch.VisualIdentity, identity));
         var frameFingerprint = _changeDetector.ComputeFingerprint(frame, _chatRegion.Value);
-        var frameChanged = _epoch is null || tentativeIdentityMismatch ||
+        var frameChanged = _epoch is null || tentativeIdentityMismatch || _awaitingInitialSnapshot ||
                            !string.Equals(_lastFrameFingerprint, frameFingerprint, StringComparison.Ordinal);
         if (!dimensionsChanged && previousChatRegion is not null && frameChanged)
         {
@@ -141,6 +150,12 @@ public sealed class MessageObserver : IMessageObserver
             _layoutTransitionActive = true;
             _layoutStableObservationCount = 0;
             _pendingSwitch = null;
+            if (_awaitingInitialSnapshot)
+            {
+                _initialSnapshotCandidates = [];
+                _initialSnapshotObservations = 0;
+                _emptyBaselineObservations = 0;
+            }
         }
         else if (_layoutTransitionActive)
         {
@@ -150,7 +165,7 @@ public sealed class MessageObserver : IMessageObserver
         var isInitialEpoch = _epoch is null;
         if (isInitialEpoch)
         {
-            StartEpoch(identity, frame.CapturedAt);
+            StartEpoch(identity, frame.CapturedAt, awaitInitialSnapshot: false);
         }
 
         var identityDistance = isInitialEpoch
@@ -182,7 +197,7 @@ public sealed class MessageObserver : IMessageObserver
             _identitySwitchesSuppressed++;
         }
 
-        frameChanged = isInitialEpoch || identityMismatch ||
+        frameChanged = isInitialEpoch || identityMismatch || _awaitingInitialSnapshot ||
                        !string.Equals(_lastFrameFingerprint, frameFingerprint, StringComparison.Ordinal);
         changeTimer.Stop();
         frameTimer.Stop();
@@ -216,21 +231,23 @@ public sealed class MessageObserver : IMessageObserver
                 PixelFingerprint.ComputePerceptual(frame, bubble.Bounds).Signature))
             .ToArray();
         var previousVisibleMessages = PreviousVisibleMessages();
-        var weakHistoryMatches = _baselineEstablished && !identityMismatch
+        var canReconcileVisibleState = _baselineEstablished ||
+                                       (_awaitingInitialSnapshot && _messages.Count > 0);
+        var weakHistoryMatches = canReconcileVisibleState && !identityMismatch
             ? SequenceAlignment.Align(
                 _messages.Count,
                 candidates.Length,
                 (message, candidate) =>
                     CandidateVisuallyMatches(_messages[message], candidates[candidate]))
             : [];
-        var strongVisualPreviousMatches = _baselineEstablished
+        var strongVisualPreviousMatches = canReconcileVisibleState
             ? SequenceAlignment.Align(
                 previousVisibleMessages.Count,
                 candidates.Length,
                 (message, candidate) =>
                     CandidateStronglyVisuallyMatches(previousVisibleMessages[message], candidates[candidate]))
             : [];
-        var weakVisualPreviousMatches = _baselineEstablished
+        var weakVisualPreviousMatches = canReconcileVisibleState
             ? SequenceAlignment.Align(
                 previousVisibleMessages.Count,
                 candidates.Length,
@@ -309,20 +326,20 @@ public sealed class MessageObserver : IMessageObserver
         }
 
         reconcileTimer.Start();
-        var matches = _baselineEstablished
+        var matches = canReconcileVisibleState
             ? SequenceAlignment.Align(
                 _messages.Count,
                 candidates.Length,
                 (message, candidate) => CandidateMatches(_messages[message], candidates[candidate]))
             : [];
-        var trustedTextPreviousMatches = _baselineEstablished
+        var trustedTextPreviousMatches = canReconcileVisibleState
             ? SequenceAlignment.Align(
                 previousVisibleMessages.Count,
                 candidates.Length,
                 (message, candidate) =>
                     CandidateTrustedTextMatches(previousVisibleMessages[message], candidates[candidate]))
             : [];
-        var strongPreviousMatches = _baselineEstablished
+        var strongPreviousMatches = canReconcileVisibleState
             ? SequenceAlignment.Align(
                 previousVisibleMessages.Count,
                 candidates.Length,
@@ -423,7 +440,7 @@ public sealed class MessageObserver : IMessageObserver
                         identityObservation);
                 }
 
-                StartEpoch(identity, frame.CapturedAt);
+                StartEpoch(identity, frame.CapturedAt, awaitInitialSnapshot: true);
                 _pendingSwitch = null;
                 _layoutTransitionActive = false;
                 _identitySwitchesConfirmed++;
@@ -520,8 +537,9 @@ public sealed class MessageObserver : IMessageObserver
             }
         }
 
-        _baselineEstablished = true;
-        if (_liveTailId is null && candidates.LastOrDefault()?.Message is { } baselineTail)
+        AdvanceBaseline(candidates);
+        if ((_liveTailId is null || _awaitingInitialSnapshot || _baselineEstablishedThisFrame) &&
+            candidates.LastOrDefault()?.Message is { } baselineTail)
         {
             _liveTailId = baselineTail.Id;
         }
@@ -549,7 +567,10 @@ public sealed class MessageObserver : IMessageObserver
             identityObservation);
     }
 
-    private void StartEpoch(IConversationIdentityEvidence identity, DateTimeOffset observedAt)
+    private void StartEpoch(
+        IConversationIdentityEvidence identity,
+        DateTimeOffset observedAt,
+        bool awaitInitialSnapshot)
     {
         var previous = _epoch;
         if (previous is not null)
@@ -562,10 +583,77 @@ public sealed class MessageObserver : IMessageObserver
         _visibleMessages.Clear();
         _lastFrameFingerprint = null;
         _baselineEstablished = false;
+        _awaitingInitialSnapshot = awaitInitialSnapshot;
+        _initialSnapshotCandidates = [];
+        _initialSnapshotObservations = 0;
+        _emptyBaselineObservations = 0;
         _liveTailId = null;
         _pendingSwitch = null;
         ConversationChanged?.Invoke(this, new ConversationChangedEventArgs(previous, _epoch));
     }
+
+    private void AdvanceBaseline(IReadOnlyList<VisibleCandidate> candidates)
+    {
+        if (!_awaitingInitialSnapshot)
+        {
+            _baselineEstablishedThisFrame = !_baselineEstablished;
+            _baselineEstablished = true;
+            return;
+        }
+
+        if (candidates.Count > 0)
+        {
+            _emptyBaselineObservations = 0;
+            var currentSnapshot = candidates
+                .Select(candidate => new InitialSnapshotCandidate(
+                    candidate.Bubble.Side,
+                    candidate.VisualFingerprint))
+                .ToArray();
+            _initialSnapshotObservations = InitialSnapshotMatches(currentSnapshot)
+                ? _initialSnapshotObservations + 1
+                : 1;
+            _initialSnapshotCandidates = currentSnapshot;
+            if (_initialSnapshotObservations < _options.InitialSnapshotRequiredObservations)
+            {
+                return;
+            }
+
+            _awaitingInitialSnapshot = false;
+            _baselineEstablished = true;
+            _baselineEstablishedThisFrame = true;
+            return;
+        }
+
+        _initialSnapshotCandidates = [];
+        _initialSnapshotObservations = 0;
+        if (_layoutTransitionActive)
+        {
+            return;
+        }
+
+        _emptyBaselineObservations++;
+        if (_emptyBaselineObservations < _options.EmptyBaselineRequiredObservations)
+        {
+            return;
+        }
+
+        _awaitingInitialSnapshot = false;
+        _baselineEstablished = true;
+        _baselineEstablishedThisFrame = true;
+        _messages.Clear();
+        _visibleMessages.Clear();
+        _liveTailId = null;
+    }
+
+    private bool InitialSnapshotMatches(IReadOnlyList<InitialSnapshotCandidate> candidates) =>
+        _initialSnapshotCandidates.Count == candidates.Count &&
+        _initialSnapshotCandidates
+            .Zip(candidates)
+            .All(pair =>
+                pair.First.Side == pair.Second.Side &&
+                VisualFingerprintsStronglyMatch(
+                    pair.First.VisualFingerprint,
+                    pair.Second.VisualFingerprint));
 
     private bool IdentityMatches(
         IConversationIdentityEvidence accepted,
@@ -726,7 +814,16 @@ public sealed class MessageObserver : IMessageObserver
             duplicates,
             Counters,
             timings,
-            identity);
+            identity,
+            new ConversationBaselineObservation(
+                _awaitingInitialSnapshot
+                    ? ConversationBaselineState.AwaitingInitialSnapshot
+                    : ConversationBaselineState.Established,
+                _initialSnapshotObservations,
+                _options.InitialSnapshotRequiredObservations,
+                _emptyBaselineObservations,
+                _options.EmptyBaselineRequiredObservations,
+                _baselineEstablishedThisFrame));
     }
 
     private sealed class VisibleCandidate(DetectedBubble bubble, string visualFingerprint)
@@ -741,6 +838,10 @@ public sealed class MessageObserver : IMessageObserver
 
         public ObservedMessage? Message { get; set; }
     }
+
+    private sealed record InitialSnapshotCandidate(
+        MessageSide Side,
+        string VisualFingerprint);
 
     private sealed record PendingConversationSwitch(
         IConversationIdentityEvidence Identity,
