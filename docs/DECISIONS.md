@@ -406,8 +406,9 @@ is never a conversation key. Recent state is bounded and memory-only. Only non-e
 The observer remembers the chronological live tail. Bubbles discovered before or away
 from that anchor are conservative history, while unmatched suffixes after the known
 live tail are live-new. Insufficient-overlap cases are suppressed rather than risk
-replaying old history. Ordered alignment deliberately preserves separate occurrences
-of repeated equal text.
+replaying old history. An all-identical ambiguous growth is also history unless a
+distinct matched bubble anchors the live edge. Ordered alignment deliberately
+preserves separate occurrences of repeated equal text when the sequence is anchored.
 
 **Reason**
 

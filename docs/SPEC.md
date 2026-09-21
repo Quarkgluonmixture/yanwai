@@ -356,7 +356,9 @@ is already necessary. Geometry is retained and updated but is not identity. This
 allows repeated identical messages to receive distinct logical IDs. A known live-tail
 anchor distinguishes appended suffixes from history discovered by scrolling; when
 there is insufficient overlap, the V0 policy suppresses conservatively instead of
-claiming an old history item is newly received.
+claiming an old history item is newly received. If an all-identical sequence can be
+explained equally well as an older prefix discovered by scrolling or a new suffix, it
+is treated as history unless another distinct matched bubble anchors the live edge.
 
 The observer reports:
 
@@ -473,11 +475,11 @@ Rules:
 - distinguish observed text from Jev inference;
 - invalidate/re-evaluate when underlying message text/context changes.
 
-Phase 4 keeps this state in a configurable in-memory buffer (25 messages and 8,000
-normalized characters by default). Each observed message retains logical ID, epoch,
-side, normalized and raw OCR text, OCR status/confidence, capture-relative bubble
-rectangle, first-observed time, bootstrap/history/live origin, visibility, and optional
-quote metadata. Nothing in this buffer is persisted by the observer.
+Phase 4 keeps this state in a configurable in-memory buffer (25 messages by default).
+Each observed message retains logical ID, epoch, side, normalized and raw OCR text,
+OCR status/confidence, capture-relative bubble rectangle, first-observed time,
+bootstrap/history/live origin, visibility, and optional quote metadata. Nothing in
+this buffer is persisted by the observer.
 
 `IsTrustedForSemantics` is true only for non-empty `Recognized` OCR output.
 `LowConfidence`, `NoText`, and `Unsupported` messages may remain in observer state but

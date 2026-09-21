@@ -52,10 +52,6 @@ public sealed class MessageObserver : IMessageObserver
             throw new ArgumentOutOfRangeException(nameof(options), "Recent message limit must be positive.");
         }
 
-        if (_options.RecentTextCharacterLimit <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options), "Recent text character limit must be positive.");
-        }
     }
 
     public event EventHandler<ConversationChangedEventArgs>? ConversationChanged;
@@ -97,17 +93,18 @@ public sealed class MessageObserver : IMessageObserver
         var frameFingerprint = _changeDetector.ComputeFingerprint(frame, _chatRegion.Value);
         var frameChanged = isNewEpoch || !string.Equals(_lastFrameFingerprint, frameFingerprint, StringComparison.Ordinal);
         changeTimer.Stop();
+        frameTimer.Stop();
+        var frameCheckDuration = frameTimer.Elapsed;
 
         if (!frameChanged)
         {
             _unchangedFrames++;
-            frameTimer.Stop();
             return Result(
                 frameChanged: false,
                 [],
                 [],
                 [],
-                new ObserverTimings(frameTimer.Elapsed, changeTimer.Elapsed, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero));
+                new ObserverTimings(frameCheckDuration, changeTimer.Elapsed, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero));
         }
 
         _changedFrames++;
@@ -208,9 +205,12 @@ public sealed class MessageObserver : IMessageObserver
             }
 
             var candidate = candidates[candidateIndex];
+            var hasDistinctAnchor = matches.Any(match =>
+                !CandidateMatches(_messages[match.Left], candidate));
             var origin = !_baselineEstablished
                 ? MessageObservationKind.Bootstrap
-                : timelineWasEmpty || (liveTailCandidateIndex is { } liveTail && candidateIndex > liveTail)
+                : timelineWasEmpty ||
+                  (liveTailCandidateIndex is { } liveTail && candidateIndex > liveTail && hasDistinctAnchor)
                     ? MessageObservationKind.LiveNew
                     : MessageObservationKind.History;
             var ocr = candidate.Ocr!;
@@ -257,13 +257,12 @@ public sealed class MessageObserver : IMessageObserver
         }
 
         reconcileTimer.Stop();
-        frameTimer.Stop();
         return Result(
             frameChanged: true,
             observed,
             emitted,
             duplicateIds,
-            new ObserverTimings(frameTimer.Elapsed, changeTimer.Elapsed, bubbleTimer.Elapsed, ocrDuration, reconcileTimer.Elapsed));
+            new ObserverTimings(frameCheckDuration, changeTimer.Elapsed, bubbleTimer.Elapsed, ocrDuration, reconcileTimer.Elapsed));
     }
 
     private void StartEpoch(string signature, DateTimeOffset observedAt)
@@ -318,8 +317,7 @@ public sealed class MessageObserver : IMessageObserver
 
     private void TrimRecentState()
     {
-        while (_messages.Count > _options.RecentMessageLimit ||
-               _messages.Sum(message => message.NormalizedText.Length) > _options.RecentTextCharacterLimit)
+        while (_messages.Count > _options.RecentMessageLimit)
         {
             _messages.RemoveAt(0);
         }

@@ -30,9 +30,7 @@ public interface IConversationIdentityProvider
     string GetVisualSignature(CapturedFrame frame, CapturePixelRect chatRegion);
 }
 
-public sealed record ObserverOptions(
-    int RecentMessageLimit = 25,
-    int RecentTextCharacterLimit = 8_000);
+public sealed record ObserverOptions(int RecentMessageLimit = 25);
 
 public sealed record ConversationEpoch(long Id, string VisualSignature, DateTimeOffset StartedAt);
 

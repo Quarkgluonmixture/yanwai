@@ -325,7 +325,7 @@ public sealed class MessageObserverTests
         var observer = CreateObserver(
             detector,
             ocr,
-            new ObserverOptions(RecentMessageLimit: 2, RecentTextCharacterLimit: 100));
+            new ObserverOptions(RecentMessageLimit: 2));
 
         await observer.ObserveAsync(Frame(10, [(first.Bounds, (byte)60)]), CancellationToken.None);
         await observer.ObserveAsync(
@@ -377,6 +377,28 @@ public sealed class MessageObserverTests
         Assert.Equal(original.Id, Assert.Single(observer.State.VisibleMessages).LogicalMessageId);
         Assert.Equal(2, ocr.Calls);
         Assert.Equal(1, changedRendering.Counters.DuplicatesSuppressed);
+    }
+
+    [Fact]
+    public async Task Scrolling_an_all_identical_sequence_suppresses_the_ambiguous_extra_bubble()
+    {
+        var first = Bubble(12, 45, 120, MessageSide.Remote);
+        var second = Bubble(12, 85, 120, MessageSide.Remote);
+        var third = Bubble(12, 125, 120, MessageSide.Remote);
+        var detector = new StubBubbleDetector([first, second], [first, second, third]);
+        var ocr = new StubOcrEngine(Ocr("好"), Ocr("好"), Ocr("好"));
+        var observer = CreateObserver(detector, ocr);
+
+        await observer.ObserveAsync(
+            Frame(10, [(first.Bounds, (byte)120), (second.Bounds, (byte)120)]),
+            CancellationToken.None);
+        var ambiguousScroll = await observer.ObserveAsync(
+            Frame(10, [(first.Bounds, (byte)120), (second.Bounds, (byte)120), (third.Bounds, (byte)120)]),
+            CancellationToken.None);
+
+        Assert.Empty(ambiguousScroll.NewMessages);
+        Assert.Equal(MessageObservationKind.History, Assert.Single(ambiguousScroll.MessagesObserved).Origin);
+        Assert.Equal(0, ambiguousScroll.Counters.MessagesEmitted);
     }
 
     private static IMessageObserver CreateObserver(

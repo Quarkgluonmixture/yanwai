@@ -279,6 +279,8 @@ Automated evidence:
 - Self `嗯` and Remote `嗯` remain distinct;
 - scrolling to existing history and returning to the live edge does not replay known
   messages;
+- an all-identical sequence growing by one ambiguous bubble is conservatively treated
+  as history rather than replayed as live-new;
 - a visual header change increments the epoch, clears prior state, and bootstraps the
   new view without a fresh-message event;
 - a minimize/restore-equivalent capture suspension retains reconciliation state and
@@ -287,14 +289,16 @@ Automated evidence:
 - message-count limits are configurable and enforced.
 
 Real-machine diagnostic evidence before manual acceptance:
-- a five-second redacted run checked 16 captured frames;
+- a six-second redacted run checked 20 captured frames;
 - the first frame ran bubble detection once and OCRed three bootstrap bubbles;
-- the remaining 15 identical frames skipped bubble detection and OCR;
+- the remaining 19 identical frames skipped bubble detection and OCR;
 - no message was emitted, no screenshot/chat log was written, and no raw text was
   printed;
-- observed first-frame timings were `capture_ms=88.2`, `frame_check_ms=699.6`,
-  `change_detect_ms=1.3`, `bubble_detect_ms=22.2`, `ocr_ms=636.3`, and
-  `observer_reconcile_ms=7.9`. These are one-run diagnostics, not performance claims.
+- observed first-frame timings were `capture_ms=78.3`, `frame_check_ms=27.1`,
+  `change_detect_ms=1.1`, `bubble_detect_ms=20.0`, `ocr_ms=587.5`, and
+  `observer_reconcile_ms=8.1`;
+- the final 5.23-second unchanged window averaged `0.75%` process CPU normalized
+  across logical processors. These are one-run diagnostics, not performance claims.
 
 Manual exit gate:
 
@@ -302,12 +306,15 @@ Run `.\scripts\observe.ps1 -DebugText` in a safe chat, then verify:
 
 1. existing visible messages print only as `bootstrap`;
 2. ten idle seconds do not increase `bubble_detection_runs` or `ocr_calls`;
-3. sending `hello-1` produces exactly one `NEW` event;
-4. sending `好` twice produces two `NEW` events with distinct IDs;
-5. scrolling up/down and returning to the bottom causes no replay storm;
-6. switching conversations creates a new epoch whose visible messages are bootstrap;
-7. switching back does not mix the previous conversation state;
-8. minimizing/restoring causes no crash or replay storm.
+3. sending `hello-1` from the local account produces exactly one `NEW Self` event;
+4. in a safe two-party chat, receiving remote `hello-remote` produces exactly one
+   `NEW Remote` event;
+5. after a distinct anchor message, receiving remote `好` twice produces two `NEW`
+   events with distinct IDs;
+6. scrolling up/down and returning to the bottom causes no replay storm;
+7. switching conversations creates a new epoch whose visible messages are bootstrap;
+8. switching back does not mix the previous conversation state;
+9. minimizing/restoring causes no crash or replay storm.
 
 Do not mark Phase 4 PASS or begin Phase 5 until this workflow is manually accepted.
 

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using WeChatJevHud.Capture;
@@ -330,6 +331,10 @@ static async Task<int> ObserveWeChatAsync(string[] arguments)
 
     var tracker = new Win32WeChatWindowTracker();
     var capture = new Win32ScreenRegionCapture();
+    using var process = Process.GetCurrentProcess();
+    var stableWindow = Stopwatch.StartNew();
+    var stableWindowCpuStart = process.TotalProcessorTime;
+    long stableWindowUnchangedFrames = 0;
     var wasUnavailable = false;
     Console.WriteLine(
         $"Observer running every {intervalMilliseconds} ms. Text output is " +
@@ -374,6 +379,20 @@ static async Task<int> ObserveWeChatAsync(string[] arguments)
                             $"bubble_detect_ms={result.Timings.BubbleDetect.TotalMilliseconds:F1} " +
                             $"ocr_ms={result.Timings.Ocr.TotalMilliseconds:F1} " +
                             $"observer_reconcile_ms={result.Timings.ObserverReconcile.TotalMilliseconds:F1}");
+                        stableWindow.Restart();
+                        stableWindowCpuStart = process.TotalProcessorTime;
+                        stableWindowUnchangedFrames = 0;
+                    }
+                    else
+                    {
+                        stableWindowUnchangedFrames++;
+                        if (stableWindowUnchangedFrames % 25 == 0)
+                        {
+                            Console.WriteLine(
+                                $"idle timing capture_ms={frame.Duration.TotalMilliseconds:F1} " +
+                                $"frame_check_ms={result.Timings.FrameCheck.TotalMilliseconds:F1} " +
+                                $"change_detect_ms={result.Timings.ChangeDetect.TotalMilliseconds:F1}");
+                        }
                     }
                 }
                 catch (WindowCaptureUnavailableException exception)
@@ -397,7 +416,16 @@ static async Task<int> ObserveWeChatAsync(string[] arguments)
         Console.CancelKeyPress -= cancelHandler;
     }
 
+    stableWindow.Stop();
+    var stableCpu = process.TotalProcessorTime - stableWindowCpuStart;
+    var stableCpuPercent = stableWindow.Elapsed > TimeSpan.Zero
+        ? stableCpu.TotalMilliseconds /
+          (stableWindow.Elapsed.TotalMilliseconds * Environment.ProcessorCount) * 100
+        : 0;
     PrintObserverCounters(observer.Counters);
+    Console.WriteLine($"idle_window_frames={stableWindowUnchangedFrames}");
+    Console.WriteLine($"idle_window_seconds={stableWindow.Elapsed.TotalSeconds:F2}");
+    Console.WriteLine($"idle_process_cpu_percent={stableCpuPercent:F2}");
     return 0;
 }
 
