@@ -60,17 +60,13 @@ public sealed class MessageObserver : IMessageObserver
             throw new ArgumentOutOfRangeException(nameof(options), "Recent message limit must be positive.");
         }
 
-
-        if (_options.IdentityMaxHammingDistance is < 0 or > 128 ||
-            _options.IdentityMaxMeanLuminanceDifference is < 0 or > 255 ||
-            _options.PendingSwitchRequiredObservations < 2 ||
+        if (_options.PendingSwitchRequiredObservations < 2 ||
             _options.LayoutStableObservations < 1 ||
             _options.BubbleMaxHammingDistance is < 0 or > 128 ||
             _options.BubbleMaxMeanLuminanceDifference is < 0 or > 255)
         {
             throw new ArgumentOutOfRangeException(nameof(options), "Conversation identity options are outside their valid ranges.");
         }
-
     }
 
     public event EventHandler<ConversationChangedEventArgs>? ConversationChanged;
@@ -104,18 +100,35 @@ public sealed class MessageObserver : IMessageObserver
         var frameTimer = Stopwatch.StartNew();
         _framesChecked++;
 
+        var previousChatRegion = _chatRegion;
         var dimensionsChanged = _frameWidth != frame.Width || _frameHeight != frame.Height;
-        var locatedChatRegion = _chatRegion is null || dimensionsChanged
-            ? _chatRegionLocator.Locate(frame).Bounds
-            : _chatRegion.Value;
-        var layoutChanged = _chatRegion is not null &&
-                            (dimensionsChanged ||
-                             !_chatRegion.Value.Equals(locatedChatRegion));
-        if (_chatRegion is null || layoutChanged)
+        if (_chatRegion is null || dimensionsChanged)
         {
-            _chatRegion = locatedChatRegion;
+            _chatRegion = _chatRegionLocator.Locate(frame).Bounds;
             _frameWidth = frame.Width;
             _frameHeight = frame.Height;
+        }
+
+        var layoutChanged = previousChatRegion is not null &&
+                            (dimensionsChanged || !previousChatRegion.Value.Equals(_chatRegion!.Value));
+        var changeTimer = Stopwatch.StartNew();
+        var identity = _conversationIdentityProvider.GetVisualEvidence(frame, _chatRegion!.Value);
+        var tentativeIdentityMismatch = _epoch is not null &&
+                                        !IdentityMatches(
+                                            _conversationIdentityProvider.Compare(_epoch.VisualIdentity, identity));
+        var frameFingerprint = _changeDetector.ComputeFingerprint(frame, _chatRegion.Value);
+        var frameChanged = _epoch is null || tentativeIdentityMismatch ||
+                           !string.Equals(_lastFrameFingerprint, frameFingerprint, StringComparison.Ordinal);
+        if (!dimensionsChanged && previousChatRegion is not null && frameChanged)
+        {
+            var refreshedChatRegion = _chatRegionLocator.Locate(frame).Bounds;
+            if (!_chatRegion.Value.Equals(refreshedChatRegion))
+            {
+                _chatRegion = refreshedChatRegion;
+                layoutChanged = true;
+                identity = _conversationIdentityProvider.GetVisualEvidence(frame, _chatRegion.Value);
+                frameFingerprint = _changeDetector.ComputeFingerprint(frame, _chatRegion.Value);
+            }
         }
 
         if (layoutChanged)
@@ -130,8 +143,6 @@ public sealed class MessageObserver : IMessageObserver
             _layoutStableObservationCount++;
         }
 
-        var changeTimer = Stopwatch.StartNew();
-        var identity = _conversationIdentityProvider.GetVisualEvidence(frame, _chatRegion.Value);
         var isInitialEpoch = _epoch is null;
         if (isInitialEpoch)
         {
@@ -139,7 +150,7 @@ public sealed class MessageObserver : IMessageObserver
         }
 
         var identityDistance = isInitialEpoch
-            ? new ConversationIdentityDistance(0, 0)
+            ? new ConversationIdentityComparison(true, "initial_identity=true")
             : _conversationIdentityProvider.Compare(_epoch!.VisualIdentity, identity);
         var identityMismatch = !isInitialEpoch && !IdentityMatches(identityDistance);
         if (identityMismatch)
@@ -150,17 +161,21 @@ public sealed class MessageObserver : IMessageObserver
         var identityObservation = new ConversationIdentityObservation(
             isInitialEpoch ? ConversationIdentityDecision.Initial : ConversationIdentityDecision.Same,
             identityMismatch,
-            identityDistance.HammingDistance,
-            identityDistance.MeanLuminanceDifference,
+            identityDistance.Diagnostics,
             0,
             0,
             LiveTailMatched: false,
             PendingObservations: 0,
             _options.PendingSwitchRequiredObservations,
             layoutChanged);
-        var frameFingerprint = _changeDetector.ComputeFingerprint(frame, _chatRegion.Value);
-        var frameChanged = isInitialEpoch || identityMismatch ||
-                           !string.Equals(_lastFrameFingerprint, frameFingerprint, StringComparison.Ordinal);
+        if (!identityMismatch && _pendingSwitch is not null)
+        {
+            _pendingSwitch = null;
+            _identitySwitchesSuppressed++;
+        }
+
+        frameChanged = isInitialEpoch || identityMismatch ||
+                       !string.Equals(_lastFrameFingerprint, frameFingerprint, StringComparison.Ordinal);
         changeTimer.Stop();
         frameTimer.Stop();
         var frameCheckDuration = frameTimer.Elapsed;
@@ -204,7 +219,7 @@ public sealed class MessageObserver : IMessageObserver
             candidates[candidateIndex].Ocr = OcrFrom(_messages[messageIndex]);
         }
 
-        HydrateFromPendingSwitch(candidates);
+        HydrateFromPendingSwitch(candidates, identity);
 
         var primaryLiveTailMatched = primaryMatches.Any(match =>
             string.Equals(_messages[match.Left].Id, _liveTailId, StringComparison.Ordinal));
@@ -453,7 +468,7 @@ public sealed class MessageObserver : IMessageObserver
             identityObservation);
     }
 
-    private void StartEpoch(ConversationIdentityEvidence identity, DateTimeOffset observedAt)
+    private void StartEpoch(IConversationIdentityEvidence identity, DateTimeOffset observedAt)
     {
         var previous = _epoch;
         if (previous is not null)
@@ -472,18 +487,15 @@ public sealed class MessageObserver : IMessageObserver
     }
 
     private bool IdentityMatches(
-        ConversationIdentityEvidence accepted,
-        ConversationIdentityEvidence candidate)
+        IConversationIdentityEvidence accepted,
+        IConversationIdentityEvidence candidate)
     {
         var distance = _conversationIdentityProvider.Compare(accepted, candidate);
         return IdentityMatches(distance);
     }
 
-    private bool IdentityMatches(ConversationIdentityDistance distance)
-    {
-        return distance.HammingDistance <= _options.IdentityMaxHammingDistance &&
-               distance.MeanLuminanceDifference <= _options.IdentityMaxMeanLuminanceDifference;
-    }
+    private static bool IdentityMatches(ConversationIdentityComparison comparison) =>
+        comparison.IsMatch;
 
     private static OcrResult OcrFrom(ObservedMessage message) =>
         new(message.NormalizedText, message.OcrConfidence, message.OcrStatus, message.RawText);
@@ -501,9 +513,11 @@ public sealed class MessageObserver : IMessageObserver
                distance.MeanLuminanceDifference <= _options.BubbleMaxMeanLuminanceDifference;
     }
 
-    private void HydrateFromPendingSwitch(IReadOnlyList<VisibleCandidate> candidates)
+    private void HydrateFromPendingSwitch(
+        IReadOnlyList<VisibleCandidate> candidates,
+        IConversationIdentityEvidence identity)
     {
-        if (_pendingSwitch is null)
+        if (_pendingSwitch is null || !IdentityMatches(_pendingSwitch.Identity, identity))
         {
             return;
         }
@@ -598,7 +612,7 @@ public sealed class MessageObserver : IMessageObserver
     }
 
     private sealed record PendingConversationSwitch(
-        ConversationIdentityEvidence Identity,
+        IConversationIdentityEvidence Identity,
         int Observations,
         IReadOnlyList<PendingCandidate> Candidates);
 

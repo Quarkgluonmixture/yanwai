@@ -403,8 +403,10 @@ conversation key. A header mismatch is only a possible conversation change. The
 observer reconciles visible messages before deciding, rebases the accepted header when
 message continuity is strong, and requires three stable low-overlap observations to
 confirm a switch. Dimension/ROI changes enter an explicit layout transition and cannot
-cause an immediate epoch change. Recent state is bounded and memory-only. Only
-non-empty `Recognized` OCR is semantic-ready.
+cause an immediate epoch change. The provider owns its opaque evidence and comparison
+thresholds so another identity implementation does not have to expose perceptual-hash
+internals to the observer. Recent state is bounded and memory-only. Only non-empty
+`Recognized` OCR is semantic-ready.
 
 **Scrolling policy**
 

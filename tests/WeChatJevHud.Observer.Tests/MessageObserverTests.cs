@@ -493,6 +493,89 @@ public sealed class MessageObserverTests
     }
 
     [Fact]
+    public async Task Same_size_chat_roi_change_starts_a_layout_transition()
+    {
+        var firstRegion = new CapturePixelRect(0, 20, 200, 180);
+        var shiftedRegion = new CapturePixelRect(20, 20, 180, 180);
+        var bubble = Bubble(40, 60, 80, MessageSide.Remote);
+        var detector = new StubBubbleDetector([bubble], [bubble]);
+        var ocr = new StubOcrEngine(Ocr("same-message"), Ocr("same-message"));
+        var identity = new StubConversationIdentityProvider(Identity(1), Identity(1));
+        var observer = CreateObserver(
+            detector,
+            ocr,
+            identityProvider: identity,
+            chatRegionLocator: new SequencedChatRegionLocator(firstRegion, shiftedRegion));
+
+        await observer.ObserveAsync(
+            Frame(10, [(bubble.Bounds, (byte)80)]),
+            CancellationToken.None);
+        var shifted = await observer.ObserveAsync(
+            Frame(10, [(bubble.Bounds, (byte)120)]),
+            CancellationToken.None);
+
+        Assert.Equal(1, shifted.Epoch.Id);
+        Assert.Equal(1, shifted.Counters.LayoutTransitions);
+    }
+
+    [Fact]
+    public async Task Returning_to_the_accepted_identity_clears_an_interrupted_pending_switch()
+    {
+        var detector = new StubBubbleDetector([], [], []);
+        var ocr = new StubOcrEngine();
+        var identity = new StubConversationIdentityProvider(
+            Identity(1), Identity(2), Identity(1), Identity(2));
+        var observer = CreateObserver(detector, ocr, identityProvider: identity);
+        var empty = Frame(10, []);
+
+        await observer.ObserveAsync(empty, CancellationToken.None);
+        var firstCandidate = await observer.ObserveAsync(empty, CancellationToken.None);
+        var returned = await observer.ObserveAsync(empty, CancellationToken.None);
+        var candidateAfterInterruption = await observer.ObserveAsync(empty, CancellationToken.None);
+
+        Assert.Equal(ConversationIdentityDecision.PendingSwitch, firstCandidate.Identity.Decision);
+        Assert.Equal(1, firstCandidate.Identity.PendingObservations);
+        Assert.Equal(ConversationIdentityDecision.Same, returned.Identity.Decision);
+        Assert.Equal(ConversationIdentityDecision.PendingSwitch, candidateAfterInterruption.Identity.Decision);
+        Assert.Equal(1, candidateAfterInterruption.Identity.PendingObservations);
+        Assert.Equal(1, candidateAfterInterruption.Epoch.Id);
+        Assert.Equal(0, candidateAfterInterruption.Counters.ConversationSwitches);
+    }
+
+    [Fact]
+    public async Task Replacing_a_pending_candidate_does_not_reuse_the_previous_candidates_ocr()
+    {
+        var chatA = Bubble(12, 60, 80, MessageSide.Remote);
+        var candidateBubble = Bubble(120, 60, 120, MessageSide.Self);
+        var detector = new StubBubbleDetector(
+            [chatA], [candidateBubble], [candidateBubble], [candidateBubble], [candidateBubble]);
+        var ocr = new StubOcrEngine(Ocr("chat-a"), Ocr("chat-b"), Ocr("chat-c"));
+        var identity = new StubConversationIdentityProvider(
+            Identity(1), Identity(2), Identity(3), Identity(3), Identity(3));
+        var observer = CreateObserver(detector, ocr, identityProvider: identity);
+
+        await observer.ObserveAsync(Frame(10, [(chatA.Bounds, (byte)80)]), CancellationToken.None);
+        var candidateB = await observer.ObserveAsync(
+            Frame(20, [(candidateBubble.Bounds, (byte)120)]),
+            CancellationToken.None);
+        var candidateC = await observer.ObserveAsync(
+            Frame(30, [(candidateBubble.Bounds, (byte)120)]),
+            CancellationToken.None);
+        await observer.ObserveAsync(
+            Frame(30, [(candidateBubble.Bounds, (byte)120)]),
+            CancellationToken.None);
+        var switched = await observer.ObserveAsync(
+            Frame(30, [(candidateBubble.Bounds, (byte)120)]),
+            CancellationToken.None);
+
+        Assert.Equal(1, candidateB.Identity.PendingObservations);
+        Assert.Equal(1, candidateC.Identity.PendingObservations);
+        Assert.Equal(ConversationIdentityDecision.ConfirmedSwitch, switched.Identity.Decision);
+        Assert.Equal("chat-c", Assert.Single(switched.MessagesObserved).NormalizedText);
+        Assert.Equal(3, ocr.Calls);
+    }
+
+    [Fact]
     public async Task Resizing_the_same_conversation_wider_and_narrower_keeps_the_epoch()
     {
         var baselineBubble = new DetectedBubble(new CapturePixelRect(18, 90, 60, 36), MessageSide.Remote, 0.95);
@@ -719,17 +802,18 @@ public sealed class MessageObserverTests
         IBubbleDetector detector,
         IOcrEngine ocr,
         ObserverOptions? options = null,
-        IConversationIdentityProvider? identityProvider = null) =>
+        IConversationIdentityProvider? identityProvider = null,
+        IChatRegionLocator? chatRegionLocator = null) =>
         new MessageObserver(
-            new StubChatRegionLocator(),
+            chatRegionLocator ?? new StubChatRegionLocator(),
             detector,
             ocr,
             new ChatRoiChangeDetector(),
             identityProvider ?? new VisualConversationIdentityProvider(),
             options);
 
-    private static ConversationIdentityEvidence Identity(ulong value) =>
-        new(value, value, (byte)value);
+    private static IConversationIdentityEvidence Identity(ulong value) =>
+        new StubConversationIdentityEvidence(value);
 
     private static DetectedBubble Bubble(int x, int y, byte value, MessageSide side) =>
         new(new CapturePixelRect(x, y, 40, 24), side, value / 255d);
@@ -833,6 +917,18 @@ public sealed class MessageObserverTests
         }
     }
 
+    private sealed class SequencedChatRegionLocator(params CapturePixelRect[] regions) : IChatRegionLocator
+    {
+        private int _calls;
+
+        public DetectedChatRegion Locate(CapturedFrame frame)
+        {
+            var index = Math.Min(_calls, regions.Length - 1);
+            _calls++;
+            return new(regions[index], 1);
+        }
+    }
+
     private sealed class StubBubbleDetector(params IReadOnlyList<DetectedBubble>[] frames) : IBubbleDetector
     {
         public int Calls { get; private set; }
@@ -859,12 +955,14 @@ public sealed class MessageObserverTests
         }
     }
 
-    private sealed class StubConversationIdentityProvider(params ConversationIdentityEvidence[] identities)
+    private sealed record StubConversationIdentityEvidence(ulong Value) : IConversationIdentityEvidence;
+
+    private sealed class StubConversationIdentityProvider(params IConversationIdentityEvidence[] identities)
         : IConversationIdentityProvider
     {
         private int _calls;
 
-        public ConversationIdentityEvidence GetVisualEvidence(
+        public IConversationIdentityEvidence GetVisualEvidence(
             CapturedFrame frame,
             CapturePixelRect chatRegion)
         {
@@ -873,9 +971,11 @@ public sealed class MessageObserverTests
             return identities[index];
         }
 
-        public ConversationIdentityDistance Compare(
-            ConversationIdentityEvidence accepted,
-            ConversationIdentityEvidence candidate) =>
-            accepted == candidate ? new(0, 0) : new(128, 255);
+        public ConversationIdentityComparison Compare(
+            IConversationIdentityEvidence accepted,
+            IConversationIdentityEvidence candidate) =>
+            Equals(accepted, candidate)
+                ? new(true, "stub_identity_equal=true")
+                : new(false, "stub_identity_equal=false");
     }
 }

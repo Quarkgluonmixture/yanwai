@@ -350,7 +350,8 @@ used. A replaceable visual-identity provider samples only a stable left/central 
 subregion, excludes dynamic right-side controls, canonicalizes it to fixed grayscale
 grids, and compares average/difference perceptual hashes by Hamming distance plus a
 bounded mean-luminance delta. The default thresholds are explicit in
-`ObserverOptions`.
+`VisualConversationIdentityOptions`; evidence remains opaque outside the replaceable
+identity-provider seam.
 
 A changed header is `PossibleConversationChange`, never an immediate epoch switch.
 The observer first reconciles visible bubbles. Two ordered matches, a matched live

@@ -13,7 +13,19 @@ public sealed class ChatRoiChangeDetector : IChatRoiChangeDetector
 
 public sealed class VisualConversationIdentityProvider : IConversationIdentityProvider
 {
-    public ConversationIdentityEvidence GetVisualEvidence(CapturedFrame frame, CapturePixelRect chatRegion)
+    private readonly VisualConversationIdentityOptions _options;
+
+    public VisualConversationIdentityProvider(VisualConversationIdentityOptions? options = null)
+    {
+        _options = options ?? new VisualConversationIdentityOptions();
+        if (_options.MaxHammingDistance is < 0 or > 128 ||
+            _options.MaxMeanLuminanceDifference is < 0 or > 255)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "Visual identity thresholds are outside their valid ranges.");
+        }
+    }
+
+    public IConversationIdentityEvidence GetVisualEvidence(CapturedFrame frame, CapturePixelRect chatRegion)
     {
         var headerHeight = Math.Max(1, chatRegion.Y);
         var availableWidth = Math.Max(1, Math.Min(chatRegion.Width, frame.Width - chatRegion.X));
@@ -26,20 +38,43 @@ public sealed class VisualConversationIdentityProvider : IConversationIdentityPr
             headerWidth,
             Math.Max(1, headerHeight - (topInset * 2)));
         var fingerprint = PixelFingerprint.ComputePerceptual(frame, header);
-        return new(
+        return new VisualConversationIdentityEvidence(
             fingerprint.AverageHash,
             fingerprint.DifferenceHash,
             fingerprint.MeanLuminance);
     }
 
-    public ConversationIdentityDistance Compare(
-        ConversationIdentityEvidence accepted,
-        ConversationIdentityEvidence candidate) =>
-        new(
-            BitOperations.PopCount(accepted.AverageHash ^ candidate.AverageHash) +
-            BitOperations.PopCount(accepted.DifferenceHash ^ candidate.DifferenceHash),
-            Math.Abs(accepted.MeanLuminance - candidate.MeanLuminance));
+    public ConversationIdentityComparison Compare(
+        IConversationIdentityEvidence accepted,
+        IConversationIdentityEvidence candidate)
+    {
+        if (accepted is not VisualConversationIdentityEvidence acceptedVisual ||
+            candidate is not VisualConversationIdentityEvidence candidateVisual)
+        {
+            throw new ArgumentException("Visual identity evidence must originate from this provider.");
+        }
+
+        var hammingDistance =
+            BitOperations.PopCount(acceptedVisual.AverageHash ^ candidateVisual.AverageHash) +
+            BitOperations.PopCount(acceptedVisual.DifferenceHash ^ candidateVisual.DifferenceHash);
+        var meanLuminanceDifference = Math.Abs(
+            acceptedVisual.MeanLuminance - candidateVisual.MeanLuminance);
+        return new(
+            hammingDistance <= _options.MaxHammingDistance &&
+            meanLuminanceDifference <= _options.MaxMeanLuminanceDifference,
+            FormattableString.Invariant(
+                $"hamming_distance={hammingDistance} mean_luminance_delta={meanLuminanceDifference}"));
+    }
+
+    private sealed record VisualConversationIdentityEvidence(
+        ulong AverageHash,
+        ulong DifferenceHash,
+        byte MeanLuminance) : IConversationIdentityEvidence;
 }
+
+public sealed record VisualConversationIdentityOptions(
+    int MaxHammingDistance = 18,
+    int MaxMeanLuminanceDifference = 24);
 
 internal static class PixelFingerprint
 {
@@ -182,7 +217,7 @@ internal readonly record struct PerceptualFingerprint(
             byte.Parse(signature.AsSpan(0, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture));
     }
 
-    public static ConversationIdentityDistance Distance(
+    public static PerceptualDistance Distance(
         PerceptualFingerprint accepted,
         PerceptualFingerprint candidate) =>
         new(
@@ -190,3 +225,7 @@ internal readonly record struct PerceptualFingerprint(
             BitOperations.PopCount(accepted.DifferenceHash ^ candidate.DifferenceHash),
             Math.Abs(accepted.MeanLuminance - candidate.MeanLuminance));
 }
+
+internal readonly record struct PerceptualDistance(
+    int HammingDistance,
+    int MeanLuminanceDifference);

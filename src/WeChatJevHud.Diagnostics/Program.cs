@@ -476,8 +476,7 @@ static void PrintIdentityObservation(ConversationIdentityObservation identity)
 
     var overlap = $"message_overlap={identity.MessageOverlap}/{identity.VisibleCandidates}";
     var evidence =
-        $"hamming_distance={identity.HammingDistance} " +
-        $"mean_luminance_delta={identity.MeanLuminanceDifference} " +
+        $"identity_evidence=\"{identity.ProviderDiagnostics}\" " +
         $"{overlap} live_tail_match={identity.LiveTailMatched.ToString().ToLowerInvariant()}";
     switch (identity.Decision)
     {

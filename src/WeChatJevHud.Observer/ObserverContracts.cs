@@ -27,34 +27,31 @@ public interface IChatRoiChangeDetector
 
 public interface IConversationIdentityProvider
 {
-    ConversationIdentityEvidence GetVisualEvidence(CapturedFrame frame, CapturePixelRect chatRegion);
+    IConversationIdentityEvidence GetVisualEvidence(CapturedFrame frame, CapturePixelRect chatRegion);
 
-    ConversationIdentityDistance Compare(
-        ConversationIdentityEvidence accepted,
-        ConversationIdentityEvidence candidate);
+    ConversationIdentityComparison Compare(
+        IConversationIdentityEvidence accepted,
+        IConversationIdentityEvidence candidate);
+}
+
+public interface IConversationIdentityEvidence
+{
 }
 
 public sealed record ObserverOptions(
     int RecentMessageLimit = 25,
-    int IdentityMaxHammingDistance = 18,
-    int IdentityMaxMeanLuminanceDifference = 24,
     int PendingSwitchRequiredObservations = 3,
     int LayoutStableObservations = 2,
     int BubbleMaxHammingDistance = 20,
     int BubbleMaxMeanLuminanceDifference = 8);
 
-public sealed record ConversationIdentityEvidence(
-    ulong AverageHash,
-    ulong DifferenceHash,
-    byte MeanLuminance);
-
-public sealed record ConversationIdentityDistance(
-    int HammingDistance,
-    int MeanLuminanceDifference);
+public sealed record ConversationIdentityComparison(
+    bool IsMatch,
+    string Diagnostics);
 
 public sealed record ConversationEpoch(
     long Id,
-    ConversationIdentityEvidence VisualIdentity,
+    IConversationIdentityEvidence VisualIdentity,
     DateTimeOffset StartedAt);
 
 public enum MessageObservationKind
@@ -77,8 +74,7 @@ public enum ConversationIdentityDecision
 public sealed record ConversationIdentityObservation(
     ConversationIdentityDecision Decision,
     bool CandidateChanged,
-    int HammingDistance,
-    int MeanLuminanceDifference,
+    string ProviderDiagnostics,
     int MessageOverlap,
     int VisibleCandidates,
     bool LiveTailMatched,

@@ -295,7 +295,11 @@ Automated evidence:
   epoch, and bootstraps without replay;
 - remaining in the switched conversation does not increment the epoch again;
 - switching back creates exactly one further epoch and does not replay old state;
-- empty and near-empty resize transitions settle without epoch churn.
+- empty and near-empty resize transitions settle without epoch churn;
+- a same-size chat-ROI change starts a layout transition;
+- returning to the accepted identity interrupts and resets a pending switch;
+- replacing one pending candidate with another does not reuse the first candidate's
+  cached OCR.
 
 Real-machine diagnostic evidence before manual acceptance:
 - a six-second redacted run checked 20 captured frames;
