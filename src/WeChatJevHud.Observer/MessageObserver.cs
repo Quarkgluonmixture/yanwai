@@ -277,7 +277,7 @@ public sealed class MessageObserver : IMessageObserver
                 PreviousVisibleWeakOverlap = weakOnlyVisualPreviousOverlap,
                 VisibleCandidates = candidates.Length,
                 LiveTailStrongMatch = false,
-                LiveTailWeakMatch = weakVisualLiveTailMatched && !strongVisualLiveTailMatched,
+                LiveTailWeakMatch = weakVisualLiveTailMatched,
             };
             return Result(
                 frameChanged: true,
