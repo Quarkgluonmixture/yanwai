@@ -397,9 +397,14 @@ before bubble detection, and reconciles changed views with ordered sequence alig
 Logical identity combines message side, visual crop fingerprint, normalized OCR text
 when already available, and relative order. Geometry is updated state, not identity.
 
-A replaceable visual chat-header signature creates conversation epochs; the HWND title
-is never a conversation key. Recent state is bounded and memory-only. Only non-empty
-`Recognized` OCR is semantic-ready.
+A replaceable visual chat-header evidence provider canonicalizes a stable header
+subregion and compares perceptual hashes by distance; the HWND title is never a
+conversation key. A header mismatch is only a possible conversation change. The
+observer reconciles visible messages before deciding, rebases the accepted header when
+message continuity is strong, and requires three stable low-overlap observations to
+confirm a switch. Dimension/ROI changes enter an explicit layout transition and cannot
+cause an immediate epoch change. Recent state is bounded and memory-only. Only
+non-empty `Recognized` OCR is semantic-ready.
 
 **Scrolling policy**
 
@@ -417,10 +422,17 @@ set would collapse legitimate repeats, while coordinate identity would replay ne
 everything after movement. Epoch-scoped sequence reconciliation retains identity
 without persistent chat logging.
 
+The identity policy deliberately prefers temporarily retaining the current epoch when
+evidence is ambiguous. This avoids false bootstrap/OCR storms during resize and
+per-monitor DPI rerendering. A confirmed different conversation still clears the old
+state once, bootstraps the new visible view, and emits no old messages as live-new.
+
 **Rejected alternatives**
 
 - Treat bubble Y coordinate as message identity.
 - Globally deduplicate by side plus text.
 - Emit every newly visible bubble after scrolling.
 - Use the top-level WeChat HWND title as conversation identity.
+- Treat exact raw header-pixel hash inequality as an immediate conversation switch.
+- Confirm a switch from one mismatching frame.
 - Persist screenshots or raw conversation history to support reconciliation.

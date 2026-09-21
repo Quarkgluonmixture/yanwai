@@ -255,7 +255,7 @@ remains unimplemented and must begin separately after this PR is merged.
 
 ## Phase 4 — New-message observer and conversation state
 
-**Status: IMPLEMENTED — awaiting manual acceptance on real WeChat.**
+**Status: FIX IMPLEMENTED — awaiting repeat manual acceptance on real WeChat.**
 
 ### Goal
 
@@ -281,12 +281,21 @@ Automated evidence:
   messages;
 - an all-identical sequence growing by one ambiguous bubble is conservatively treated
   as history rather than replayed as live-new;
-- a visual header change increments the epoch, clears prior state, and bootstraps the
-  new view without a fresh-message event;
+- a true stable low-overlap header change increments the epoch once, clears prior
+  state, and bootstraps the new view without a fresh-message event;
 - a minimize/restore-equivalent capture suspension retains reconciliation state and
   does not replay the restored frame;
 - `LowConfidence` OCR remains observable but has `IsTrustedForSemantics = false`;
 - message-count limits are configurable and enforced.
+- slight header rerendering, wider/narrower resize, simulated 150%/100% DPI scaling,
+  and gradual multi-frame resize retain one epoch;
+- header mismatch with at least two visible matches or a live-tail match rebases the
+  accepted identity without repeated OCR;
+- a true low-overlap switch requires three stable observations, creates exactly one
+  epoch, and bootstraps without replay;
+- remaining in the switched conversation does not increment the epoch again;
+- switching back creates exactly one further epoch and does not replay old state;
+- empty and near-empty resize transitions settle without epoch churn.
 
 Real-machine diagnostic evidence before manual acceptance:
 - a six-second redacted run checked 20 captured frames;
@@ -300,21 +309,32 @@ Real-machine diagnostic evidence before manual acceptance:
 - the final 5.23-second unchanged window averaged `0.75%` process CPU normalized
   across logical processors. These are one-run diagnostics, not performance claims.
 
+Blocking manual evidence from the first acceptance attempt:
+- 3,311 frames were checked and 67 changed frames ran bubble detection;
+- scrolling produced `history`/duplicate suppression rather than a `NEW` replay storm;
+- resize and cross-monitor capture continued without a crash;
+- the same conversation incorrectly advanced from epoch 3 through epoch 11;
+- the run ended with 10 conversation switches and 161 OCR calls;
+- the cause was exact raw header-pixel inequality committing a switch before visible
+  message reconciliation. The evidence-based/debounced identity fix above has not yet
+  been revalidated on the real machine.
+
 Manual exit gate:
 
-Run `.\scripts\observe.ps1 -DebugText` in a safe chat, then verify:
+Run `.\scripts\observe.ps1 -DebugText` in a safe chat, then verify the identity fix:
 
-1. existing visible messages print only as `bootstrap`;
-2. ten idle seconds do not increase `bubble_detection_runs` or `ocr_calls`;
-3. sending `hello-1` from the local account produces exactly one `NEW Self` event;
-4. in a safe two-party chat, receiving remote `hello-remote` produces exactly one
-   `NEW Remote` event;
-5. after a distinct anchor message, receiving remote `好` twice produces two `NEW`
-   events with distinct IDs;
-6. scrolling up/down and returning to the bottom causes no replay storm;
-7. switching conversations creates a new epoch whose visible messages are bootstrap;
-8. switching back does not mix the previous conversation state;
-9. minimizing/restoring causes no crash or replay storm.
+1. start in one conversation and record the epoch;
+2. resize WeChat narrower and wider several times;
+3. drag it from the 150% laptop display to the 100% external display and back while
+   remaining in the same conversation;
+4. confirm the epoch stays unchanged, state remains intact, known messages do not
+   repeatedly OCR/bootstrap, and no `NEW` replay appears;
+5. switch to another conversation and confirm exactly one epoch increment whose
+   visible messages are bootstrap with no old-state mixing;
+6. switch back and confirm exactly one further epoch increment with no replay storm;
+7. confirm diagnostics explain mismatches as rebase, layout suppression, pending
+   `1/3` and `2/3`, or one confirmed switch;
+8. repeat the original idle/new-message/repeated-`好`/scroll/minimize-restore checks.
 
 Do not mark Phase 4 PASS or begin Phase 5 until this workflow is manually accepted.
 

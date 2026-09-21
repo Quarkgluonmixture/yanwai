@@ -296,7 +296,7 @@ static async Task<int> ObserveWeChatAsync(string[] arguments)
     {
         Console.WriteLine(eventArgs.PreviousEpoch is null
             ? $"[epoch {eventArgs.CurrentEpoch.Id}] observation started"
-            : $"[epoch {eventArgs.CurrentEpoch.Id}] conversation changed");
+            : $"conversation switch confirmed epoch {eventArgs.PreviousEpoch.Id} -> {eventArgs.CurrentEpoch.Id}");
     };
     observer.MessageObserved += (_, eventArgs) =>
     {
@@ -365,6 +365,7 @@ static async Task<int> ObserveWeChatAsync(string[] arguments)
                 {
                     var frame = capture.Capture(window);
                     var result = await observer.ObserveAsync(frame, cancellation.Token);
+                    PrintIdentityObservation(result.Identity);
                     foreach (var id in result.DuplicateMessageIds)
                     {
                         Console.WriteLine($"[epoch {result.Epoch.Id}] duplicate suppressed id={id}");
@@ -459,6 +460,42 @@ static void PrintObserverCounters(ObserverCounters counters)
     Console.WriteLine($"new_messages={counters.MessagesEmitted}");
     Console.WriteLine($"duplicates_suppressed={counters.DuplicatesSuppressed}");
     Console.WriteLine($"conversation_switches={counters.ConversationSwitches}");
+    Console.WriteLine($"identity_mismatch_candidates={counters.IdentityMismatchCandidates}");
+    Console.WriteLine($"identity_rebases={counters.IdentityRebases}");
+    Console.WriteLine($"identity_switches_confirmed={counters.IdentitySwitchesConfirmed}");
+    Console.WriteLine($"identity_switches_suppressed={counters.IdentitySwitchesSuppressed}");
+    Console.WriteLine($"layout_transitions={counters.LayoutTransitions}");
+}
+
+static void PrintIdentityObservation(ConversationIdentityObservation identity)
+{
+    if (!identity.CandidateChanged)
+    {
+        return;
+    }
+
+    var overlap = $"message_overlap={identity.MessageOverlap}/{identity.VisibleCandidates}";
+    var evidence =
+        $"hamming_distance={identity.HammingDistance} " +
+        $"mean_luminance_delta={identity.MeanLuminanceDifference} " +
+        $"{overlap} live_tail_match={identity.LiveTailMatched.ToString().ToLowerInvariant()}";
+    switch (identity.Decision)
+    {
+        case ConversationIdentityDecision.RebaseSameConversation:
+            Console.WriteLine($"identity candidate changed {evidence} decision=REBASE_SAME_CONVERSATION");
+            break;
+        case ConversationIdentityDecision.LayoutTransition:
+            Console.WriteLine($"identity candidate changed {evidence} decision=LAYOUT_TRANSITION_SUPPRESSED");
+            break;
+        case ConversationIdentityDecision.PendingSwitch:
+            Console.WriteLine(
+                $"identity candidate changed {evidence} " +
+                $"pending_switch={identity.PendingObservations}/{identity.RequiredObservations}");
+            break;
+        case ConversationIdentityDecision.ConfirmedSwitch:
+            Console.WriteLine($"identity candidate changed {evidence} decision=CONFIRMED_SWITCH");
+            break;
+    }
 }
 
 static int? PositiveIntOption(string[] arguments, string option, int? defaultValue)

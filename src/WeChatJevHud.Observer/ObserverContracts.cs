@@ -27,12 +27,35 @@ public interface IChatRoiChangeDetector
 
 public interface IConversationIdentityProvider
 {
-    string GetVisualSignature(CapturedFrame frame, CapturePixelRect chatRegion);
+    ConversationIdentityEvidence GetVisualEvidence(CapturedFrame frame, CapturePixelRect chatRegion);
+
+    ConversationIdentityDistance Compare(
+        ConversationIdentityEvidence accepted,
+        ConversationIdentityEvidence candidate);
 }
 
-public sealed record ObserverOptions(int RecentMessageLimit = 25);
+public sealed record ObserverOptions(
+    int RecentMessageLimit = 25,
+    int IdentityMaxHammingDistance = 18,
+    int IdentityMaxMeanLuminanceDifference = 24,
+    int PendingSwitchRequiredObservations = 3,
+    int LayoutStableObservations = 2,
+    int BubbleMaxHammingDistance = 20,
+    int BubbleMaxMeanLuminanceDifference = 8);
 
-public sealed record ConversationEpoch(long Id, string VisualSignature, DateTimeOffset StartedAt);
+public sealed record ConversationIdentityEvidence(
+    ulong AverageHash,
+    ulong DifferenceHash,
+    byte MeanLuminance);
+
+public sealed record ConversationIdentityDistance(
+    int HammingDistance,
+    int MeanLuminanceDifference);
+
+public sealed record ConversationEpoch(
+    long Id,
+    ConversationIdentityEvidence VisualIdentity,
+    DateTimeOffset StartedAt);
 
 public enum MessageObservationKind
 {
@@ -40,6 +63,28 @@ public enum MessageObservationKind
     History,
     LiveNew,
 }
+
+public enum ConversationIdentityDecision
+{
+    Initial,
+    Same,
+    RebaseSameConversation,
+    LayoutTransition,
+    PendingSwitch,
+    ConfirmedSwitch,
+}
+
+public sealed record ConversationIdentityObservation(
+    ConversationIdentityDecision Decision,
+    bool CandidateChanged,
+    int HammingDistance,
+    int MeanLuminanceDifference,
+    int MessageOverlap,
+    int VisibleCandidates,
+    bool LiveTailMatched,
+    int PendingObservations,
+    int RequiredObservations,
+    bool LayoutChanged);
 
 public sealed record ObservedMessage(
     string Id,
@@ -81,7 +126,12 @@ public sealed record ObserverCounters(
     long OcrCalls,
     long MessagesEmitted,
     long DuplicatesSuppressed,
-    long ConversationSwitches);
+    long ConversationSwitches,
+    long IdentityMismatchCandidates,
+    long IdentityRebases,
+    long IdentitySwitchesConfirmed,
+    long IdentitySwitchesSuppressed,
+    long LayoutTransitions);
 
 public sealed record ObserverTimings(
     TimeSpan FrameCheck,
@@ -97,7 +147,8 @@ public sealed record ObservationResult(
     IReadOnlyList<ObservedMessage> NewMessages,
     IReadOnlyList<string> DuplicateMessageIds,
     ObserverCounters Counters,
-    ObserverTimings Timings);
+    ObserverTimings Timings,
+    ConversationIdentityObservation Identity);
 
 public sealed class ConversationChangedEventArgs(
     ConversationEpoch? previousEpoch,

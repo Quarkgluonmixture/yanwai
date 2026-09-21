@@ -346,9 +346,26 @@ adapters rather than state hidden in the capture loop.
 
 The first frame in an epoch is a bootstrap: visible bubbles may be OCRed to seed
 context, but they never produce `NewMessageObserved`. The top-level HWND title is not
-used. A replaceable visual header-signature provider starts a new epoch, clears the
-previous conversation state, and establishes a fresh bootstrap when the visible chat
-header changes.
+used. A replaceable visual-identity provider samples only a stable left/central header
+subregion, excludes dynamic right-side controls, canonicalizes it to fixed grayscale
+grids, and compares average/difference perceptual hashes by Hamming distance plus a
+bounded mean-luminance delta. The default thresholds are explicit in
+`ObserverOptions`.
+
+A changed header is `PossibleConversationChange`, never an immediate epoch switch.
+The observer first reconciles visible bubbles. Two ordered matches, a matched live
+tail, or one match during a known layout transition is sufficient continuity to keep
+the epoch and rebase its accepted header evidence. With weak/no overlap, the same
+candidate must remain stable for three observations before a switch is confirmed.
+The first two observations remain pending and do not mutate the current conversation
+state or emit messages; pending OCR is reused. A confirmed switch clears the old state
+exactly once and bootstraps the candidate view.
+
+Frame dimensions or chat-ROI changes start a layout transition. A transition requires
+two stable-layout observations before weak/no-overlap evidence may advance a switch.
+Unstable transition frames cannot switch epochs and avoid OCR when visual continuity
+is not yet available. Empty views rebase after layout stabilization. This policy is
+intentionally conservative across 150%/100% DPI rerendering.
 
 Visible bubble identity uses ordered sequence alignment over side plus visual crop
 fingerprint, with normalized OCR text as a secondary reconciliation signal after OCR
@@ -371,6 +388,11 @@ ocr_calls
 messages_emitted
 duplicates_suppressed
 conversation_switches
+identity_mismatch_candidates
+identity_rebases
+identity_switches_confirmed
+identity_switches_suppressed
+layout_transitions
 ```
 
 and per-frame `frame_check_ms`, `change_detect_ms`, `bubble_detect_ms`, `ocr_ms`, and

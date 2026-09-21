@@ -106,9 +106,12 @@ Run the observer against the Windows desktop WeChat session from PowerShell:
 ```
 
 It captures in memory only, establishes the visible messages as a bootstrap baseline,
-then reports conversation epochs, new-message events, duplicate suppression, counters,
-and per-stage timings. Chat text is redacted by default. For an explicitly opted-in,
-truncated normalized-text diagnostic:
+then reports conversation epochs, evidence-based identity decisions, new-message
+events, duplicate suppression, counters, and per-stage timings. Header identity uses a
+scale-tolerant perceptual comparison plus visible-message continuity and a three-frame
+switch confirmation; resize/DPI layout transitions cannot immediately change epochs.
+Chat text is redacted by default. For an explicitly opted-in, truncated normalized-text
+diagnostic:
 
 ```powershell
 .\scripts\observe.ps1 -DebugText

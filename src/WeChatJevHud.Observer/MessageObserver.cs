@@ -30,8 +30,16 @@ public sealed class MessageObserver : IMessageObserver
     private long _messagesEmitted;
     private long _duplicatesSuppressed;
     private long _conversationSwitches;
+    private long _identityMismatchCandidates;
+    private long _identityRebases;
+    private long _identitySwitchesConfirmed;
+    private long _identitySwitchesSuppressed;
+    private long _layoutTransitions;
     private bool _baselineEstablished;
     private string? _liveTailId;
+    private PendingConversationSwitch? _pendingSwitch;
+    private bool _layoutTransitionActive;
+    private int _layoutStableObservationCount;
 
     public MessageObserver(
         IChatRegionLocator chatRegionLocator,
@@ -50,6 +58,17 @@ public sealed class MessageObserver : IMessageObserver
         if (_options.RecentMessageLimit <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(options), "Recent message limit must be positive.");
+        }
+
+
+        if (_options.IdentityMaxHammingDistance is < 0 or > 128 ||
+            _options.IdentityMaxMeanLuminanceDifference is < 0 or > 255 ||
+            _options.PendingSwitchRequiredObservations < 2 ||
+            _options.LayoutStableObservations < 1 ||
+            _options.BubbleMaxHammingDistance is < 0 or > 128 ||
+            _options.BubbleMaxMeanLuminanceDifference is < 0 or > 255)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "Conversation identity options are outside their valid ranges.");
         }
 
     }
@@ -71,7 +90,12 @@ public sealed class MessageObserver : IMessageObserver
         _ocrCalls,
         _messagesEmitted,
         _duplicatesSuppressed,
-        _conversationSwitches);
+        _conversationSwitches,
+        _identityMismatchCandidates,
+        _identityRebases,
+        _identitySwitchesConfirmed,
+        _identitySwitchesSuppressed,
+        _layoutTransitions);
 
     public async Task<ObservationResult> ObserveAsync(CapturedFrame frame, CancellationToken cancellationToken)
     {
@@ -80,18 +104,63 @@ public sealed class MessageObserver : IMessageObserver
         var frameTimer = Stopwatch.StartNew();
         _framesChecked++;
 
-        if (_chatRegion is null || _frameWidth != frame.Width || _frameHeight != frame.Height)
+        var dimensionsChanged = _frameWidth != frame.Width || _frameHeight != frame.Height;
+        var locatedChatRegion = _chatRegion is null || dimensionsChanged
+            ? _chatRegionLocator.Locate(frame).Bounds
+            : _chatRegion.Value;
+        var layoutChanged = _chatRegion is not null &&
+                            (dimensionsChanged ||
+                             !_chatRegion.Value.Equals(locatedChatRegion));
+        if (_chatRegion is null || layoutChanged)
         {
-            _chatRegion = _chatRegionLocator.Locate(frame).Bounds;
+            _chatRegion = locatedChatRegion;
             _frameWidth = frame.Width;
             _frameHeight = frame.Height;
         }
 
+        if (layoutChanged)
+        {
+            _layoutTransitions++;
+            _layoutTransitionActive = true;
+            _layoutStableObservationCount = 0;
+            _pendingSwitch = null;
+        }
+        else if (_layoutTransitionActive)
+        {
+            _layoutStableObservationCount++;
+        }
+
         var changeTimer = Stopwatch.StartNew();
-        var signature = _conversationIdentityProvider.GetVisualSignature(frame, _chatRegion.Value);
-        var isNewEpoch = _epoch is null || !string.Equals(_epoch.VisualSignature, signature, StringComparison.Ordinal);
+        var identity = _conversationIdentityProvider.GetVisualEvidence(frame, _chatRegion.Value);
+        var isInitialEpoch = _epoch is null;
+        if (isInitialEpoch)
+        {
+            StartEpoch(identity, frame.CapturedAt);
+        }
+
+        var identityDistance = isInitialEpoch
+            ? new ConversationIdentityDistance(0, 0)
+            : _conversationIdentityProvider.Compare(_epoch!.VisualIdentity, identity);
+        var identityMismatch = !isInitialEpoch && !IdentityMatches(identityDistance);
+        if (identityMismatch)
+        {
+            _identityMismatchCandidates++;
+        }
+
+        var identityObservation = new ConversationIdentityObservation(
+            isInitialEpoch ? ConversationIdentityDecision.Initial : ConversationIdentityDecision.Same,
+            identityMismatch,
+            identityDistance.HammingDistance,
+            identityDistance.MeanLuminanceDifference,
+            0,
+            0,
+            LiveTailMatched: false,
+            PendingObservations: 0,
+            _options.PendingSwitchRequiredObservations,
+            layoutChanged);
         var frameFingerprint = _changeDetector.ComputeFingerprint(frame, _chatRegion.Value);
-        var frameChanged = isNewEpoch || !string.Equals(_lastFrameFingerprint, frameFingerprint, StringComparison.Ordinal);
+        var frameChanged = isInitialEpoch || identityMismatch ||
+                           !string.Equals(_lastFrameFingerprint, frameFingerprint, StringComparison.Ordinal);
         changeTimer.Stop();
         frameTimer.Stop();
         var frameCheckDuration = frameTimer.Elapsed;
@@ -104,15 +173,11 @@ public sealed class MessageObserver : IMessageObserver
                 [],
                 [],
                 [],
-                new ObserverTimings(frameCheckDuration, changeTimer.Elapsed, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero));
+                new ObserverTimings(frameCheckDuration, changeTimer.Elapsed, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero),
+                identityObservation);
         }
 
         _changedFrames++;
-        if (isNewEpoch)
-        {
-            StartEpoch(signature, frame.CapturedAt);
-        }
-
         var bubbleTimer = Stopwatch.StartNew();
         var bubbles = _bubbleDetector.Detect(frame, _chatRegion.Value)
             .OrderBy(bubble => bubble.Bounds.Y)
@@ -125,26 +190,54 @@ public sealed class MessageObserver : IMessageObserver
         var candidates = bubbles
             .Select(bubble => new VisibleCandidate(
                 bubble,
-                PixelFingerprint.HashSampled(
-                    frame,
-                    bubble.Bounds,
-                    targetSamples: 2_048,
-                    includeDimensions: false)))
+                PixelFingerprint.ComputePerceptual(frame, bubble.Bounds).Signature))
             .ToArray();
         var primaryMatches = _baselineEstablished
             ? SequenceAlignment.Align(
                 _messages.Count,
                 candidates.Length,
                 (message, candidate) =>
-                    _messages[message].Side == candidates[candidate].Bubble.Side &&
-                    string.Equals(
-                        _messages[message].VisualFingerprint,
-                        candidates[candidate].VisualFingerprint,
-                        StringComparison.Ordinal))
+                    CandidateVisuallyMatches(_messages[message], candidates[candidate]))
             : [];
         foreach (var (messageIndex, candidateIndex) in primaryMatches)
         {
             candidates[candidateIndex].Ocr = OcrFrom(_messages[messageIndex]);
+        }
+
+        HydrateFromPendingSwitch(candidates);
+
+        var primaryLiveTailMatched = primaryMatches.Any(match =>
+            string.Equals(_messages[match.Left].Id, _liveTailId, StringComparison.Ordinal));
+        var layoutHasStabilized = !_layoutTransitionActive ||
+                                  _layoutStableObservationCount >= _options.LayoutStableObservations;
+        if (identityMismatch &&
+            _layoutTransitionActive &&
+            !layoutHasStabilized &&
+            primaryMatches.Count < 2 &&
+            !primaryLiveTailMatched)
+        {
+            _identitySwitchesSuppressed++;
+            _lastFrameFingerprint = frameFingerprint;
+            reconcileTimer.Stop();
+            identityObservation = identityObservation with
+            {
+                Decision = ConversationIdentityDecision.LayoutTransition,
+                MessageOverlap = primaryMatches.Count,
+                VisibleCandidates = candidates.Length,
+                LiveTailMatched = primaryLiveTailMatched,
+            };
+            return Result(
+                frameChanged: true,
+                [],
+                [],
+                [],
+                new ObserverTimings(
+                    frameCheckDuration,
+                    changeTimer.Elapsed,
+                    bubbleTimer.Elapsed,
+                    TimeSpan.Zero,
+                    reconcileTimer.Elapsed),
+                identityObservation);
         }
 
         reconcileTimer.Stop();
@@ -168,6 +261,100 @@ public sealed class MessageObserver : IMessageObserver
                 candidates.Length,
                 (message, candidate) => CandidateMatches(_messages[message], candidates[candidate]))
             : [];
+        var liveTailMatched = matches.Any(match =>
+            string.Equals(_messages[match.Left].Id, _liveTailId, StringComparison.Ordinal));
+        if (identityMismatch)
+        {
+            if (matches.Count >= 2 || liveTailMatched || (_layoutTransitionActive && matches.Count >= 1))
+            {
+                _epoch = _epoch! with { VisualIdentity = identity };
+                _pendingSwitch = null;
+                _layoutTransitionActive = false;
+                _identityRebases++;
+                identityObservation = identityObservation with
+                {
+                    Decision = ConversationIdentityDecision.RebaseSameConversation,
+                    MessageOverlap = matches.Count,
+                    VisibleCandidates = candidates.Length,
+                    LiveTailMatched = liveTailMatched,
+                };
+            }
+            else if (_layoutTransitionActive &&
+                     layoutHasStabilized &&
+                     _messages.Count == 0 &&
+                     candidates.Length == 0)
+            {
+                _epoch = _epoch! with { VisualIdentity = identity };
+                _pendingSwitch = null;
+                _layoutTransitionActive = false;
+                _identityRebases++;
+                identityObservation = identityObservation with
+                {
+                    Decision = ConversationIdentityDecision.RebaseSameConversation,
+                    VisibleCandidates = 0,
+                };
+            }
+            else
+            {
+                var observations = _pendingSwitch is not null &&
+                                   IdentityMatches(_pendingSwitch.Identity, identity)
+                    ? _pendingSwitch.Observations + 1
+                    : 1;
+                _pendingSwitch = new PendingConversationSwitch(
+                    identity,
+                    observations,
+                    candidates.Select(PendingCandidate.From).ToArray());
+                _lastFrameFingerprint = frameFingerprint;
+                if (observations < _options.PendingSwitchRequiredObservations)
+                {
+                    _identitySwitchesSuppressed++;
+                    identityObservation = identityObservation with
+                    {
+                        Decision = ConversationIdentityDecision.PendingSwitch,
+                        MessageOverlap = matches.Count,
+                        VisibleCandidates = candidates.Length,
+                        LiveTailMatched = liveTailMatched,
+                        PendingObservations = observations,
+                    };
+                    reconcileTimer.Stop();
+                    return Result(
+                        frameChanged: true,
+                        [],
+                        [],
+                        [],
+                        new ObserverTimings(
+                            frameCheckDuration,
+                            changeTimer.Elapsed,
+                            bubbleTimer.Elapsed,
+                            ocrDuration,
+                            reconcileTimer.Elapsed),
+                        identityObservation);
+                }
+
+                StartEpoch(identity, frame.CapturedAt);
+                _pendingSwitch = null;
+                _layoutTransitionActive = false;
+                _identitySwitchesConfirmed++;
+                identityObservation = identityObservation with
+                {
+                    Decision = ConversationIdentityDecision.ConfirmedSwitch,
+                    MessageOverlap = matches.Count,
+                    VisibleCandidates = candidates.Length,
+                    LiveTailMatched = liveTailMatched,
+                    PendingObservations = observations,
+                };
+                matches = [];
+            }
+        }
+        else
+        {
+            _pendingSwitch = null;
+            if (_layoutTransitionActive && layoutHasStabilized)
+            {
+                _layoutTransitionActive = false;
+            }
+        }
+
         var matchedByCandidate = matches.ToDictionary(match => match.Right, match => match.Left);
         var liveTailCandidateIndex = matches
             .Where(match => string.Equals(_messages[match.Left].Id, _liveTailId, StringComparison.Ordinal))
@@ -262,10 +449,11 @@ public sealed class MessageObserver : IMessageObserver
             observed,
             emitted,
             duplicateIds,
-            new ObserverTimings(frameCheckDuration, changeTimer.Elapsed, bubbleTimer.Elapsed, ocrDuration, reconcileTimer.Elapsed));
+            new ObserverTimings(frameCheckDuration, changeTimer.Elapsed, bubbleTimer.Elapsed, ocrDuration, reconcileTimer.Elapsed),
+            identityObservation);
     }
 
-    private void StartEpoch(string signature, DateTimeOffset observedAt)
+    private void StartEpoch(ConversationIdentityEvidence identity, DateTimeOffset observedAt)
     {
         var previous = _epoch;
         if (previous is not null)
@@ -273,21 +461,70 @@ public sealed class MessageObserver : IMessageObserver
             _conversationSwitches++;
         }
 
-        _epoch = new ConversationEpoch((previous?.Id ?? 0) + 1, signature, observedAt);
+        _epoch = new ConversationEpoch((previous?.Id ?? 0) + 1, identity, observedAt);
         _messages.Clear();
         _visibleMessages.Clear();
         _lastFrameFingerprint = null;
         _baselineEstablished = false;
         _liveTailId = null;
+        _pendingSwitch = null;
         ConversationChanged?.Invoke(this, new ConversationChangedEventArgs(previous, _epoch));
+    }
+
+    private bool IdentityMatches(
+        ConversationIdentityEvidence accepted,
+        ConversationIdentityEvidence candidate)
+    {
+        var distance = _conversationIdentityProvider.Compare(accepted, candidate);
+        return IdentityMatches(distance);
+    }
+
+    private bool IdentityMatches(ConversationIdentityDistance distance)
+    {
+        return distance.HammingDistance <= _options.IdentityMaxHammingDistance &&
+               distance.MeanLuminanceDifference <= _options.IdentityMaxMeanLuminanceDifference;
     }
 
     private static OcrResult OcrFrom(ObservedMessage message) =>
         new(message.NormalizedText, message.OcrConfidence, message.OcrStatus, message.RawText);
 
-    private static bool CandidateMatches(ObservedMessage message, VisibleCandidate candidate) =>
+    private bool CandidateVisuallyMatches(ObservedMessage message, VisibleCandidate candidate) =>
         message.Side == candidate.Bubble.Side &&
-        (string.Equals(message.VisualFingerprint, candidate.VisualFingerprint, StringComparison.Ordinal) ||
+        VisualFingerprintsMatch(message.VisualFingerprint, candidate.VisualFingerprint);
+
+    private bool VisualFingerprintsMatch(string accepted, string candidate)
+    {
+        var distance = PerceptualFingerprint.Distance(
+            PerceptualFingerprint.Parse(accepted),
+            PerceptualFingerprint.Parse(candidate));
+        return distance.HammingDistance <= _options.BubbleMaxHammingDistance &&
+               distance.MeanLuminanceDifference <= _options.BubbleMaxMeanLuminanceDifference;
+    }
+
+    private void HydrateFromPendingSwitch(IReadOnlyList<VisibleCandidate> candidates)
+    {
+        if (_pendingSwitch is null)
+        {
+            return;
+        }
+
+        var pendingMatches = SequenceAlignment.Align(
+            _pendingSwitch.Candidates.Count,
+            candidates.Count,
+            (pending, candidate) =>
+                _pendingSwitch.Candidates[pending].Bubble.Side == candidates[candidate].Bubble.Side &&
+                VisualFingerprintsMatch(
+                    _pendingSwitch.Candidates[pending].VisualFingerprint,
+                    candidates[candidate].VisualFingerprint));
+        foreach (var (pendingIndex, candidateIndex) in pendingMatches)
+        {
+            candidates[candidateIndex].Ocr = _pendingSwitch.Candidates[pendingIndex].Ocr;
+        }
+    }
+
+    private bool CandidateMatches(ObservedMessage message, VisibleCandidate candidate) =>
+        message.Side == candidate.Bubble.Side &&
+        (VisualFingerprintsMatch(message.VisualFingerprint, candidate.VisualFingerprint) ||
          (!string.IsNullOrWhiteSpace(message.NormalizedText) &&
           string.Equals(message.NormalizedText, candidate.Ocr!.Text, StringComparison.Ordinal)));
 
@@ -328,7 +565,8 @@ public sealed class MessageObserver : IMessageObserver
         IReadOnlyList<ObservedMessage> observed,
         IReadOnlyList<ObservedMessage> emitted,
         IReadOnlyList<string> duplicates,
-        ObserverTimings timings)
+        ObserverTimings timings,
+        ConversationIdentityObservation identity)
     {
         _messagesEmitted += emitted.Count;
         _duplicatesSuppressed += duplicates.Count;
@@ -344,7 +582,8 @@ public sealed class MessageObserver : IMessageObserver
             emitted,
             duplicates,
             Counters,
-            timings);
+            timings,
+            identity);
     }
 
     private sealed class VisibleCandidate(DetectedBubble bubble, string visualFingerprint)
@@ -356,5 +595,19 @@ public sealed class MessageObserver : IMessageObserver
         public OcrResult? Ocr { get; set; }
 
         public ObservedMessage? Message { get; set; }
+    }
+
+    private sealed record PendingConversationSwitch(
+        ConversationIdentityEvidence Identity,
+        int Observations,
+        IReadOnlyList<PendingCandidate> Candidates);
+
+    private sealed record PendingCandidate(
+        DetectedBubble Bubble,
+        string VisualFingerprint,
+        OcrResult Ocr)
+    {
+        public static PendingCandidate From(VisibleCandidate candidate) =>
+            new(candidate.Bubble, candidate.VisualFingerprint, candidate.Ocr!);
     }
 }
