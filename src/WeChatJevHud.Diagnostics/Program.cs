@@ -77,7 +77,8 @@ if (collectCalibrationIndex >= 0)
             args[collectCalibrationIndex + 1],
             OptionValue(args, "--calibration-dir")
                 ?? Path.Combine(Environment.CurrentDirectory, ".ocr-cache", "phase4.5-calibration"),
-            OptionValue(args, "--calibration-side"));
+            OptionValue(args, "--calibration-side"),
+            NonNegativeIntOption(args, "--calibration-skip", 0));
     }
     catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or ArgumentException or InvalidOperationException or NotSupportedException)
     {
@@ -535,7 +536,8 @@ static double Percentile(IReadOnlyList<double> values, double probability)
 static async Task<int> CollectOcrCalibrationAsync(
     string expectedTextPath,
     string calibrationDirectory,
-    string? sideOption)
+    string? sideOption,
+    int skippedBubbles)
 {
     var expected = (await File.ReadAllLinesAsync(Path.GetFullPath(expectedTextPath)))
         .Select(line => line.TrimEnd('\r', '\n'))
@@ -564,16 +566,20 @@ static async Task<int> CollectOcrCalibrationAsync(
     var detection = new BubbleDetectionPipeline(
         new DarkThemeChatRegionLocator(),
         new DarkThemeBubbleDetector()).Analyze(frame);
-    var bubbles = detection.Bubbles
+    var matchingBubbles = detection.Bubbles
         .Where(bubble => side is null || bubble.Side == side.Value)
         .OrderBy(bubble => bubble.Bounds.Y)
         .ToArray();
-    if (bubbles.Length != expected.Length)
+    var requiredVisibleBubbles = expected.Length + skippedBubbles;
+    if (matchingBubbles.Length != requiredVisibleBubbles)
     {
         throw new InvalidOperationException(
-            $"Detected {bubbles.Length} matching text bubbles but expected file has {expected.Length} lines. " +
+            $"Detected {matchingBubbles.Length} matching text bubbles but expected " +
+            $"{skippedBubbles} skipped + {expected.Length} labeled bubbles ({requiredVisibleBubbles} total). " +
             "Adjust the viewport or side filter; no crops were saved.");
     }
+
+    var bubbles = matchingBubbles.Skip(skippedBubbles).ToArray();
 
     var fullDirectory = Path.GetFullPath(calibrationDirectory);
     var cropDirectory = Path.Combine(fullDirectory, "crops");
@@ -605,7 +611,9 @@ static async Task<int> CollectOcrCalibrationAsync(
     await File.WriteAllTextAsync(
         manifestPath,
         JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
-    Console.WriteLine($"Saved {bubbles.Length} private crop(s) under {cropDirectory}.");
+    Console.WriteLine(
+        $"Skipped {skippedBubbles} leading matching bubble(s); " +
+        $"saved {bubbles.Length} private crop(s) under {cropDirectory}.");
     Console.WriteLine($"Calibration manifest now contains {manifest.Fixtures.Count} sample(s): {manifestPath}");
     Console.WriteLine("Review every crop-to-expected pairing before using it as acceptance evidence.");
     return 0;
@@ -957,6 +965,22 @@ static int? PositiveIntOption(string[] arguments, string option, int? defaultVal
     if (!int.TryParse(raw, out var parsed) || parsed <= 0)
     {
         throw new ArgumentException($"{option} must be a positive integer.");
+    }
+
+    return parsed;
+}
+
+static int NonNegativeIntOption(string[] arguments, string option, int defaultValue)
+{
+    var raw = OptionValue(arguments, option);
+    if (raw is null)
+    {
+        return defaultValue;
+    }
+
+    if (!int.TryParse(raw, out var parsed) || parsed < 0)
+    {
+        throw new ArgumentException($"{option} must be a non-negative integer.");
     }
 
     return parsed;

@@ -171,6 +171,10 @@ WeChat, then run:
 .\scripts\evaluate-production-ocr.ps1
 ```
 
+If known older matching bubbles remain above the labeled batch, pass `-Skip N`.
+Collection still requires the viewport to contain exactly `N + expected lines` matching
+bubbles, then saves only the labeled suffix.
+
 Collection aborts without saving when the expected-line and detected-bubble counts
 differ. Every crop/label pairing still requires visual inspection. The report keeps
 raw/normalized accuracy, Paddle `rec_score`, Adaptive output, trust, CER,

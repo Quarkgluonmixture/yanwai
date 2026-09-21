@@ -6,6 +6,9 @@ param(
     [ValidateSet('self', 'remote')]
     [string]$Side,
 
+    [ValidateRange(0, 1000)]
+    [int]$Skip = 0,
+
     [string]$CalibrationDirectory
 )
 
@@ -24,6 +27,9 @@ $arguments = @(
 )
 if ($PSBoundParameters.ContainsKey('Side')) {
     $arguments += @('--calibration-side', $Side)
+}
+if ($Skip -gt 0) {
+    $arguments += @('--calibration-skip', $Skip)
 }
 if ($PSBoundParameters.ContainsKey('CalibrationDirectory')) {
     $arguments += @('--calibration-dir', $CalibrationDirectory)
