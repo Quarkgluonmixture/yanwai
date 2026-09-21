@@ -154,7 +154,9 @@ model/library/device information, and keeps the model resident. Bubble PNG bytes
 an ID-correlated UTF-8 JSON-lines protocol in memory; normal operation writes no
 message crops. `PP-OCRv6_small_rec` handles confidently classified single-line crops.
 Wrapped/multiline and ambiguous crops remain Adaptive. Worker/protocol/device failure
-falls back without terminating the observer.
+falls back without terminating the observer. Paddle disagreement, Adaptive-only text,
+and fallback text remain available as `LowConfidence` candidates but are not trusted
+for downstream semantics.
 Worker/library stderr is suppressed by default. `-PaddleWorkerDebug` explicitly
 enables privacy-safe troubleshooting metadata (severity category and character count),
 never the raw third-party stderr line; output is capped to avoid log flooding.

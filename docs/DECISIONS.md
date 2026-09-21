@@ -474,10 +474,12 @@ wrapped, quoted, and ambiguous crops remain on the existing Adaptive path.
 
 Paddle `rec_score` is retained only as `EngineScoreKind = paddle_rec_score`; it never
 populates `OcrConfidence` or establishes semantic trust. Paddle-only results and
-Paddle/secondary disagreement remain untrusted. Existing trusted Adaptive results
-remain trusted. A new agreement result is trusted only when Paddle, the selected
-Adaptive output, and a separate confidence-bearing OCR candidate normalize to the same
-text. Worker failure falls back to Adaptive without terminating observation.
+Paddle/secondary disagreement remain untrusted. Adaptive-only and worker-fallback
+output remains available as a text candidate but is untrusted in the production
+router. A new agreement result is trusted only when Paddle, the selected Adaptive
+output, and a separate confidence-bearing OCR candidate normalize to the same text.
+Worker failure falls back to Adaptive without terminating observation or losing the
+candidate text.
 
 **Reason**
 
@@ -487,6 +489,12 @@ Phase 4.5 two-engine policy also reproduced a shared wrong result (`啦` read as
 both Paddle and Windows OCR. Requiring stronger independent evidence reduced the
 18-crop production-policy evaluation from one trusted-wrong result to zero without
 using an invented Paddle score threshold.
+
+The subsequent 52-crop calibration exposed six trusted-wrong results: three cases
+where trusted Adaptive output overrode a correct disagreeing Paddle result, and three
+high-confidence Adaptive-only multiline errors. Production trust was therefore
+tightened again: disagreement and Adaptive-only output can no longer become
+semantic-ready. This preserves diagnostic/candidate text while preferring safe failure.
 
 **Rejected alternatives**
 

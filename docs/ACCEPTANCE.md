@@ -384,8 +384,8 @@ Final manual acceptance evidence (2026-09-21):
 
 ## Phase 4.5 — Production OCR runtime
 
-**Status: IN PROGRESS — implementation and initial real-runtime validation complete;
-private calibration expansion and manual acceptance remain.**
+**Status: IN PROGRESS — implementation and private calibration complete; real observer
+message-matrix and Phase 4 regression acceptance remain.**
 
 ### Goal
 
@@ -410,7 +410,7 @@ multiline OCR or Phase 4 observation behavior.
 - [x] Runtime/observer counters and startup, warmup, inference, roundtrip, transport,
   and total OCR timing are exposed.
 - [x] Unchanged observer frames issue no additional Paddle requests.
-- [ ] A visually inspected private 50–100 crop corpus, including the required
+- [x] A visually inspected private 50–100 crop corpus, including the required
   polarity/negation pairs, has zero trusted-wrong results.
 - [ ] The real observer workflow covers short Self/Remote `好`, another very short
   Chinese message, a negation, English, mixed text, and a long wrapped message.
@@ -420,7 +420,7 @@ multiline OCR or Phase 4 observation behavior.
 Current automated and real-runtime evidence:
 
 - Final automated gates passed on Windows: solution format verification, a full build
-  with 0 warnings/errors, 103 .NET tests, and 9 Python worker/benchmark tests.
+  with 0 warnings/errors, 104 .NET tests, and 9 Python worker/benchmark tests.
 - Windows-native Python 3.10 under `%LOCALAPPDATA%` loaded PaddleOCR 3.7.0,
   PaddlePaddle GPU 3.2.2, and `PP-OCRv6_small_rec` on `gpu:0` (RTX 5080); WSL is not
   an application runtime dependency.
@@ -434,15 +434,26 @@ Current automated and real-runtime evidence:
   Paddle-score threshold.
 - The stronger-evidence run produced 12/18 raw and normalized exact, 4/18
   semantic-ready, and 0 trusted-wrong. `好`, `嗯嗯`, and `怎么说` were correct Paddle
-  outputs but remained safely untrusted where independent evidence was absent. The
-  only represented polarity item (`好`) was correct; this is not yet the required full
-  polarity corpus.
+  outputs but remained safely untrusted where independent evidence was absent. At
+  that point, the only represented polarity item (`好`) was correct; the later 52-crop
+  run supplied the complete polarity corpus.
+- The completed 52-crop private corpus was collected from seven batches and visually
+  reviewed crop-by-crop. The corrected production policy produced 46/52 raw and
+  normalized exact, 46/47 single-line exact, 6/52 semantic-ready, and 0 trusted-wrong.
+- All 12 required polarity/negation samples were exact. The same-crop Adaptive-only
+  baseline marked 5/47 single-line samples semantic-ready, but only 2 were correct and
+  3 were trusted-wrong; routed production OCR produced 6 correct semantic-ready
+  single-line samples and zero trusted-wrong.
+- The initial 52-crop run exposed six trusted-wrong cases caused by trusting Adaptive
+  disagreement or high-confidence Adaptive-only multiline output. The production
+  router now keeps both categories as `LowConfidence` candidates; the rerun passed the
+  corpus gate without using Paddle `rec_score` as a threshold.
+- The passing run used `gpu:0`, reported 3431.5 ms startup, 589.8 ms warmup, 52.4/137.3
+  ms total OCR p50/p95, and 11.4/12.1 ms Paddle inference p50/p95.
 - The private report and crops remain under `.ocr-cache` and are not committed.
-- Seven private expected-text batches containing 52 labels are prepared locally; the
-  corresponding real detected crops and visual crop/label review are still pending.
 
-Manual acceptance is intentionally blocked until the expanded private corpus and real
-observer message matrix are collected and reviewed. Phase 5 must not begin.
+Manual acceptance is intentionally blocked until the real observer message matrix and
+Phase 4 regression workflow are completed. Phase 5 must not begin.
 
 ---
 

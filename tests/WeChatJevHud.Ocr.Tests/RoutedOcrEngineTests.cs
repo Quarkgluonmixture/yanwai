@@ -60,6 +60,31 @@ public sealed class RoutedOcrEngineTests
     }
 
     [Fact]
+    public async Task TrustedAdaptiveDisagreementCannotOverridePaddleOrEstablishTrust()
+    {
+        var paddle = new StubEngine(
+            "PP-OCRv6_small_rec",
+            new OcrResult(
+                "不可以",
+                null,
+                OcrTextStatus.LowConfidence,
+                "不可以",
+                PaddleDiagnostics("不可以", 0.9996)));
+        var adaptive = new StubEngine(
+            "adaptive-ocr",
+            new OcrResult("个可以", 0.95, OcrTextStatus.Recognized, "个可以"));
+        var engine = new RoutedOcrEngine(new FixedRoute(OcrRoute.PaddleSingleLine), paddle, adaptive);
+
+        var result = await engine.RecognizeAsync(Crop(), CancellationToken.None);
+
+        Assert.Equal("不可以", result.Text);
+        Assert.Equal(OcrTextStatus.LowConfidence, result.Status);
+        Assert.False(result.IsTrustedForSemantics);
+        Assert.Null(result.OcrConfidence);
+        Assert.Equal(OcrTrustBasis.None, result.Diagnostics!.TrustBasis);
+    }
+
+    [Fact]
     public async Task TwoUncalibratedEnginesAgreeingDoesNotEstablishTrust()
     {
         var paddle = new StubEngine(
@@ -78,7 +103,7 @@ public sealed class RoutedOcrEngineTests
     }
 
     [Fact]
-    public async Task PaddleFailureFallsBackToAdaptive()
+    public async Task PaddleFailurePreservesAdaptiveCandidateWithoutTrustingIt()
     {
         var paddle = new ThrowingEngine();
         var adaptive = new StubEngine(
@@ -91,8 +116,9 @@ public sealed class RoutedOcrEngineTests
         var result = await engine.RecognizeAsync(Crop(), CancellationToken.None);
 
         Assert.Equal("fallback", result.Text);
-        Assert.True(result.IsTrustedForSemantics);
-        Assert.Equal(OcrTrustBasis.AdaptiveTrusted, result.Diagnostics!.TrustBasis);
+        Assert.Equal(OcrTextStatus.LowConfidence, result.Status);
+        Assert.False(result.IsTrustedForSemantics);
+        Assert.Equal(OcrTrustBasis.None, result.Diagnostics!.TrustBasis);
         Assert.Equal(1, counters.Snapshot.PaddleFallbacks);
     }
 
@@ -108,6 +134,9 @@ public sealed class RoutedOcrEngineTests
         Assert.Equal(0, paddle.Calls);
         Assert.Equal(1, adaptive.Calls);
         Assert.Equal(OcrRoute.Adaptive, result.Diagnostics!.Route);
+        Assert.Equal("line one\nline two", result.RawText);
+        Assert.Equal(OcrTextStatus.LowConfidence, result.Status);
+        Assert.False(result.IsTrustedForSemantics);
     }
 
     private static OcrDiagnostics PaddleDiagnostics(string text, double score) =>

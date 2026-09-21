@@ -25,8 +25,8 @@ public sealed class PaddleFailureFallbackIntegrationTests
         var result = await engine.RecognizeAsync(Crop(), CancellationToken.None);
 
         Assert.Equal("安全回退", result.Text);
-        Assert.Equal(OcrTextStatus.Recognized, result.Status);
-        Assert.True(result.IsTrustedForSemantics);
+        Assert.Equal(OcrTextStatus.LowConfidence, result.Status);
+        Assert.False(result.IsTrustedForSemantics);
         Assert.Equal(1, counters.Snapshot.PaddleFallbacks);
     }
 

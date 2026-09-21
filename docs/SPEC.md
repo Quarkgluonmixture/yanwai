@@ -509,12 +509,13 @@ engine-specific evidence. For Paddle, `EngineScoreKind` is `paddle_rec_score`, w
 `OcrConfidence` is null. `rec_score` is not a correctness probability and cannot
 establish trust.
 
-Paddle-only output and disagreement remain `LowConfidence`. Existing trusted Adaptive
-output remains trusted. Otherwise, promotion requires normalized agreement between
-Paddle, the selected Adaptive output, and a separate confidence-bearing OCR candidate;
-agreement between Paddle and uncalibrated Windows OCR alone is insufficient. Any
-worker/protocol/device failure falls back to Adaptive. This is an explicit replaceable
-policy, not a model-score threshold.
+Paddle-only output, disagreement, Adaptive-only output, and worker-fallback output
+remain `LowConfidence` candidates in the production router. Promotion requires
+normalized agreement between Paddle, the selected Adaptive output, and a separate
+confidence-bearing OCR candidate; agreement between Paddle and uncalibrated Windows
+OCR alone is insufficient. Any worker/protocol/device failure falls back to Adaptive
+without losing candidate text. This is an explicit replaceable policy, not a
+model-score threshold.
 
 ---
 

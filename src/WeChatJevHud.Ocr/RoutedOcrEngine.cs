@@ -32,9 +32,9 @@ public sealed class RoutedOcrEngine : IOcrEngine
             var adaptiveOnly = await _adaptive.RecognizeAsync(crop, cancellationToken).ConfigureAwait(false);
             timer.Stop();
             return WithDiagnostics(
-                adaptiveOnly,
+                WithoutSemanticTrust(adaptiveOnly),
                 route,
-                adaptiveOnly.IsTrustedForSemantics ? OcrTrustBasis.AdaptiveTrusted : OcrTrustBasis.None,
+                OcrTrustBasis.None,
                 [SelectedEvidence(_adaptive.Name, adaptiveOnly), .. AdaptiveEvidence(adaptiveOnly)],
                 timer.Elapsed);
         }
@@ -54,9 +54,9 @@ public sealed class RoutedOcrEngine : IOcrEngine
             var fallback = await _adaptive.RecognizeAsync(crop, cancellationToken).ConfigureAwait(false);
             timer.Stop();
             return WithDiagnostics(
-                fallback,
+                WithoutSemanticTrust(fallback),
                 route,
-                fallback.IsTrustedForSemantics ? OcrTrustBasis.AdaptiveTrusted : OcrTrustBasis.None,
+                OcrTrustBasis.None,
                 [SelectedEvidence(_adaptive.Name, fallback), .. AdaptiveEvidence(fallback)],
                 timer.Elapsed);
         }
@@ -95,16 +95,6 @@ public sealed class RoutedOcrEngine : IOcrEngine
                     timer.Elapsed));
         }
 
-        if (adaptive.IsTrustedForSemantics)
-        {
-            return WithDiagnostics(
-                adaptive,
-                route,
-                OcrTrustBasis.AdaptiveTrusted,
-                evidence,
-                timer.Elapsed);
-        }
-
         if (!string.IsNullOrWhiteSpace(paddleText))
         {
             return new OcrResult(
@@ -115,7 +105,12 @@ public sealed class RoutedOcrEngine : IOcrEngine
                 new OcrDiagnostics(route, OcrTrustBasis.None, evidence, timer.Elapsed));
         }
 
-        return WithDiagnostics(adaptive, route, OcrTrustBasis.None, evidence, timer.Elapsed);
+        return WithDiagnostics(
+            WithoutSemanticTrust(adaptive),
+            route,
+            OcrTrustBasis.None,
+            evidence,
+            timer.Elapsed);
     }
 
     private static OcrResult WithDiagnostics(
@@ -143,4 +138,9 @@ public sealed class RoutedOcrEngine : IOcrEngine
 
     private static IReadOnlyList<OcrEngineEvidence> AdaptiveEvidence(OcrResult result) =>
         result.Diagnostics?.Evidence ?? [];
+
+    private static OcrResult WithoutSemanticTrust(OcrResult result) =>
+        result.Status == OcrTextStatus.Recognized
+            ? result with { Status = OcrTextStatus.LowConfidence }
+            : result;
 }

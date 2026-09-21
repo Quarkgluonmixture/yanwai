@@ -429,8 +429,15 @@ static async Task<int> EvaluateProductionOcrAsync(
         })
         .ToArray();
     var singleLineRows = rows.Where(row => row.Route == OcrRoute.PaddleSingleLine).ToArray();
-    var adaptiveOnlySemanticReady = singleLineRows.Count(
-        row => row.SecondaryStatus == OcrTextStatus.Recognized && !string.IsNullOrWhiteSpace(row.SecondaryRaw));
+    var adaptiveOnlySemanticReadyRows = singleLineRows.Where(
+        row => row.SecondaryStatus == OcrTextStatus.Recognized && !string.IsNullOrWhiteSpace(row.SecondaryRaw))
+        .ToArray();
+    var adaptiveOnlyTrustedCorrect = adaptiveOnlySemanticReadyRows.Count(row =>
+        string.Equals(
+            OcrTextNormalizer.Normalize(row.Expected),
+            OcrTextNormalizer.Normalize(row.SecondaryRaw),
+            StringComparison.Ordinal));
+    var adaptiveOnlyTrustedWrong = adaptiveOnlySemanticReadyRows.Length - adaptiveOnlyTrustedCorrect;
     var latencies = rows.Select(row => row.TotalOcr.TotalMilliseconds).Order().ToArray();
     var inference = rows.Where(row => row.PaddleInference is not null)
         .Select(row => row.PaddleInference!.Value.TotalMilliseconds).Order().ToArray();
@@ -445,7 +452,8 @@ static async Task<int> EvaluateProductionOcrAsync(
         .AppendLine($"- Semantic-ready coverage: {trusted}/{rows.Count}; trusted-wrong: {trustedWrong}.")
         .AppendLine(
             $"- Single-line semantic-ready coverage: routed {singleLineRows.Count(row => row.IsTrustedForSemantics)}/{singleLineRows.Length}; " +
-            $"same-crop Adaptive-only baseline {adaptiveOnlySemanticReady}/{singleLineRows.Length}.")
+            $"same-crop Adaptive-only baseline {adaptiveOnlySemanticReadyRows.Length}/{singleLineRows.Length} " +
+            $"({adaptiveOnlyTrustedCorrect} correct, {adaptiveOnlyTrustedWrong} wrong).")
         .AppendLine($"- Polarity/negation: {polarityRows.Length - polarityErrors}/{polarityRows.Length} normalized exact; errors: {polarityErrors}.")
         .AppendLine(
             $"- Acceptance-corpus gate: {(acceptanceCorpusReady ? "ready" : "incomplete")}; " +
@@ -506,7 +514,9 @@ static async Task<int> EvaluateProductionOcrAsync(
                     paddle_inference_p50_ms = Percentile(inference, 0.50),
                     paddle_inference_p95_ms = Percentile(inference, 0.95),
                     single_line_semantic_ready = singleLineRows.Count(row => row.IsTrustedForSemantics),
-                    single_line_adaptive_only_semantic_ready = adaptiveOnlySemanticReady,
+                    single_line_adaptive_only_semantic_ready = adaptiveOnlySemanticReadyRows.Length,
+                    single_line_adaptive_only_trusted_correct = adaptiveOnlyTrustedCorrect,
+                    single_line_adaptive_only_trusted_wrong = adaptiveOnlyTrustedWrong,
                     by_route = routeSummaries,
                 },
                 rows,
