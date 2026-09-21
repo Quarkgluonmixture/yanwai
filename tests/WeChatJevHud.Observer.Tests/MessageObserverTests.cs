@@ -729,6 +729,36 @@ public sealed class MessageObserverTests
     }
 
     [Fact]
+    public async Task Unstable_layout_with_one_visual_live_tail_reports_weak_tail_evidence()
+    {
+        var baselineTail = new DetectedBubble(
+            new CapturePixelRect(12, 60, 40, 24),
+            MessageSide.Remote,
+            0.95);
+        var resizedTail = new DetectedBubble(
+            new CapturePixelRect(18, 90, 60, 36),
+            MessageSide.Remote,
+            0.95);
+        var detector = new StubBubbleDetector([baselineTail], [resizedTail]);
+        var ocr = new StubOcrEngine(Ocr("tail"));
+        var identity = new StubConversationIdentityProvider(Identity(1), Identity(2));
+        var observer = CreateObserver(detector, ocr, identityProvider: identity);
+
+        await observer.ObserveAsync(
+            Frame(200, 200, 10, [(baselineTail.Bounds, (byte)80)]),
+            CancellationToken.None);
+        var resizing = await observer.ObserveAsync(
+            Frame(300, 300, 30, [(resizedTail.Bounds, (byte)80)]),
+            CancellationToken.None);
+
+        Assert.Equal(ConversationIdentityDecision.LayoutTransition, resizing.Identity.Decision);
+        Assert.False(resizing.Identity.LiveTailStrongMatch);
+        Assert.True(resizing.Identity.LiveTailWeakMatch);
+        Assert.Equal(1, resizing.Epoch.Id);
+        Assert.Equal(1, ocr.Calls);
+    }
+
+    [Fact]
     public async Task Same_size_chat_roi_change_starts_a_layout_transition()
     {
         var firstRegion = new CapturePixelRect(0, 20, 200, 180);
