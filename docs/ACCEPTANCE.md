@@ -521,6 +521,34 @@ Paddle-only full-bubble experiment (production remains unchanged):
   Trust calibration remains separate; no rec_score threshold or Adaptive veto was added.
 
 The remaining real observer matrix and Phase 4 regression workflow stay paused. Phase
+4.5 remains IN PROGRESS.
+
+Unified extraction follow-up (benchmark only):
+
+- Same immutable 84 entries / 76 distinct PNGs; labels, hashes, detected counts and
+  line boxes checked against the prior experiment. One detector and one recognizer
+  remain loaded, with extra direct whole-crop control calls excluded from timing.
+- Zero/one detection uses original raw whole-bubble recognition; two or more retains
+  the prior line-crop algorithm. Main and quote samples stay separate.
+- Unified exact: 79/84 overall, 46/47 calibration single-line, 7/7 multiline/quote,
+  7/7 each at 96/144 DPI, 16/18 punctuation, 62/65 Chinese, 6/8 English, 9/9 mixed,
+  2/2 digits/other. Raw and normalized exact counts are equal. Language cohorts use
+  CJK/Latin-letter presence; punctuation overlaps language cohorts.
+- Three punctuation-width cases improve over line-rec; two English comma-space
+  cases regress relative to line-rec. Zero regressions relative to routed or raw
+  single-line control; the remaining three errors are existing Remote glyph errors
+  (including one aliased crop). No evaluation normalization was relaxed.
+- Unified p50/p95: 14.0/33.3 ms, excluding input decoding, IPC, artifact IO, startup
+  and control calls. Startup/warmup: 3107.7/417.6 ms. These are local benchmark timings,
+  not production observer latency. Each sample follows a raw-recognition control call,
+  which may warm shape-specific caches despite its excluded timing. Zero detection did
+  not occur in this corpus.
+- Twenty-five Python tests pass, including raw-pixel identity for zero/one detection
+  and equality with existing multiline crop extraction. Production .NET/worker/trust
+  code is unchanged. Recommend the Unified architecture for subsequent implementation;
+  do not infer semantic readiness from this extraction benchmark.
+
+Stop for review; Phase
 4.5 is not PASS and Phase 5 must not begin.
 
 ---

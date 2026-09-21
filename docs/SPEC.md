@@ -547,6 +547,11 @@ raw line strings, composed text, literal/normalized evaluation and stage timings
 No production router removal or trust-policy change follows automatically from this
 benchmark. See D-021 and the Phase 4.5 acceptance evidence.
 
+The Unified benchmark follow-up uses original raw whole-bubble recognition when
+small detection yields zero or one line, and retains the same line-box extraction
+when it yields two or more. It is the recommended next production candidate (D-022),
+but production routing and trust remain unchanged until separately implemented.
+
 ---
 
 ## 11. Conversation state

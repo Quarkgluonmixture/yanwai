@@ -571,3 +571,28 @@ Production routing, worker protocol and trust are unchanged by this experiment.
 The architecture is promising, but the router is not deleted pending review of the
 single-line regression and broader paired-DPI multiline evidence. No generic score
 threshold or Adaptive-agreement trust policy is introduced.
+
+---
+
+## D-022 — Unified Paddle extraction is the recommended next production candidate
+
+The isolated follow-up experiment runs small detection on every pre-isolated crop.
+Zero or one detection uses the original whole bubble with small recognition; two or
+more detections reuse D-021 line cropping/order/composition. Zero detection does not
+select Adaptive. No preprocessing or detector-box padding is added.
+
+On the same 84 entries / 76 byte-distinct crops, Unified is 79/84 raw/normalized
+exact versus detector-line-rec 78/84 and current routed 71/84. Calibration single-line
+accuracy is restored to 46/47 while multiline/independent quote remains 7/7. Both
+single-line DPI sets remain 7/7. There are no new errors relative to current routed
+or same-run raw single-line recognition. Three punctuation-width errors are fixed;
+two English samples lose a comma-following space that detector-line-rec preserved.
+Those two failures were already present in raw whole-bubble recognition.
+
+Recommend removing `ScaleAwareOcrRoutingPolicy` from the normal production path in a
+separately authorized implementation, using Unified extraction and retaining Adaptive
+only for runtime failure as explicitly untrusted fallback. This benchmark does not
+make that production change or establish trust. Existing Remote glyph errors and
+Latin wrap/spacing ambiguity remain. Real zero-detection behavior was not observed;
+its whole-crop branch has deterministic test coverage only. Dual-DPI multiline
+coverage remains limited. Phase 4.5 is IN PROGRESS.

@@ -280,6 +280,25 @@ new single-line punctuation substitutions prevent claiming a regression-free rep
 API sources consulted 2026-09-21: [official TextDetection](https://www.paddleocr.ai/main/en/version3.x/module_usage/text_detection.html)
 and [TextRecognition](https://www.paddleocr.ai/main/en/version3.x/module_usage/text_recognition.html).
 
+The third experimental candidate preserves raw whole-bubble recognition for zero or
+one detected line and uses line crops only for two or more lines. Reuse the exact
+combined corpus and baselines above:
+
+```powershell
+& "$env:LOCALAPPDATA\WeChatJevHud\paddle-ocr\.venv\Scripts\python.exe" `
+  scripts/paddle_bubble_benchmark.py `
+  --manifest .ocr-cache/phase4.5-paddle-bubble/manifest.json `
+  --output .ocr-cache/phase4.5-paddle-bubble --unified
+python scripts/compare_unified_bubble.py --root .ocr-cache/phase4.5-paddle-bubble
+```
+
+`unified-report.md` contains every candidate row, and `unified-comparison.md` reports
+all requested cohorts plus improvements/regressions. Original routed and line-rec
+results remain intact. The outcome is 79/84 exact, preserving 46/47 calibration
+single-line and 7/7 multiline/quote. Unified is recommended for a subsequent production
+change, but the current normal router, persistent worker and trust policy remain
+unchanged by this experiment. Scores are never correctness probabilities.
+
 ## Secrets and later phases
 
 No TypeSafe/Jev code runs through Phase 4.5. The official TypeSafe skill is installed at `.agents/skills/typesafe-ai/`. Before Phase 5 implementation, the live-docs gate in `docs/ACCEPTANCE.md` still applies.
