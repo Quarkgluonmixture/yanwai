@@ -307,3 +307,80 @@ probability distribution.
 
 - Present the heuristic value as generic `Confidence`, which could incorrectly
   imply that `0.94` means a calibrated 94% likelihood.
+
+---
+
+## D-016 — OCR remains replaceable and uses an evidence-based adaptive candidate
+
+**Decision**
+
+Keep Windows Media OCR and Tesseract behind `IOcrEngine`. For the Phase 3 candidate,
+run confidence-bearing Tesseract raw/upscaled variants and accept the strongest result
+only at or above `0.90`; otherwise fall back to upscaled Windows Media OCR. Preserve
+`OcrConfidence` as nullable and separate from `DetectionScore`. Because the fallback
+has no confidence signal, surface its non-empty text as `LowConfidence` for downstream
+human review rather than silently treating it as trusted.
+
+**Evidence**
+
+Real WeChat bubble crops showed complementary behavior: Windows Media OCR was better
+on short Chinese, while Tesseract `chi_sim+eng` was better on the representative long
+wrapped, Chinese/English, and quoted-region crops. High-contrast preprocessing damaged
+small strokes and was rejected. Windows Media OCR does not expose a confidence value;
+inventing one would be misleading.
+
+The initial `0.75` adaptive threshold was superseded after the short-Chinese stress
+set produced incorrect but higher-scoring results at `0.77` and `0.87`. Raising the
+candidate threshold to `0.90` turns those cases into explicit low-confidence fallback
+outcomes instead of trusted recognized text. This remains an empirical safety policy,
+not probability calibration.
+
+An isolated recognition-only PaddleOCR benchmark was added before final Phase 3
+acceptance. On the same private crop corpus, both PP-OCRv6 small and medium materially
+improved short-Chinese exact match, but both also assigned high `rec_score` values to
+wrong results and truncated multiline crops. `rec_score` is therefore recorded as an
+engine-specific, uncalibrated diagnostic—not as `OcrConfidence`, `DetectionScore`, or
+a probability. Small is the preferred candidate for later explicit routing because
+medium provided no accuracy benefit. Existing Adaptive/Tesseract remains useful for
+multiline cases. Paddle is not productionized by the Phase 3 PR.
+
+**Status**
+
+Phase 3 is accepted. The adapters and selection policy remain independently
+replaceable; Paddle remains an evaluated candidate rather than a production adapter.
+
+**Rejected alternatives**
+
+- OCR the whole WeChat window.
+- Choose an engine before comparing real crops.
+- Relabel Tesseract mean confidence as detection confidence or a calibrated accuracy
+  probability.
+- Manufacture a confidence value for Windows Media OCR.
+- Use Paddle text detection after Phase 2 has already supplied reliable crop geometry.
+- Treat Paddle `rec_score` as calibrated or directly comparable across engines.
+
+---
+
+## D-017 — OCR evaluation preserves raw and normalized truth separately
+
+**Decision**
+
+Every OCR evaluation row records raw recognized text, normalized recognized text,
+literal raw exact match, normalized match, raw CER, and normalized CER. Generic
+`exact_match` is an alias for literal raw equality only. Normalization is CJK-aware and
+conservative: it may remove artificial spacing between CJK characters, CJK-adjacent
+full-width punctuation spacing, and OCR separator artifacts, but it preserves normal
+Latin punctuation spacing such as `123, I just got home.`.
+
+**Reason**
+
+The first real English run returned `123,I` while the expected text contained
+`123, I`. The previous normalization removed the expected space too, incorrectly
+reporting an exact match. Separate layers preserve evaluation truth while still making
+CJK OCR artifacts measurable.
+
+**Rejected alternatives**
+
+- Call normalized equality an exact match.
+- Remove spaces adjacent to every Unicode punctuation character.
+- Discard raw engine output before evaluation.

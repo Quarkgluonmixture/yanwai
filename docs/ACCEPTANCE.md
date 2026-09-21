@@ -128,12 +128,13 @@ Final manual acceptance evidence (2026-09-21):
 - the user accepted `detection_score` as the correct name for the uncalibrated
   heuristic score.
 
-The Phase 2 human exit gate is satisfied. Phase 3 remains out of scope for this
-branch.
+The Phase 2 human exit gate was satisfied before Phase 3 began.
 
 ---
 
 ## Phase 3 — OCR
+
+**Status: PASS — automated evaluation and manual acceptance complete.**
 
 ### Goal
 
@@ -141,23 +142,114 @@ Extract text from individual detected message crops.
 
 ### Acceptance
 
-- [ ] `IOcrEngine` abstraction exists.
-- [ ] OCR runs on bubble crops, not entire dual-monitor desktop.
-- [ ] Simplified Chinese short text works on representative samples.
-- [ ] Long wrapped Chinese text works on representative samples.
-- [ ] Mixed Chinese/English is tested.
-- [ ] OCR result exposes confidence if available.
-- [ ] Low-confidence text is surfaced as uncertain/skipped rather than silently trusted.
-- [ ] Emoji-only/sticker/image messages may return "unsupported/skip" in V0.
-- [ ] Quoted reply structure is either extracted or explicitly marked unsupported; do not silently merge quote and current text as if they were one sentence.
+- [x] `IOcrEngine` abstraction exists.
+- [x] OCR runs on bubble crops, not entire dual-monitor desktop.
+- [x] Simplified Chinese short text works on representative samples.
+- [x] Long wrapped Chinese text works on a representative sample.
+- [x] Mixed Chinese/English is tested.
+- [x] OCR result exposes confidence if available.
+- [x] Low-confidence text is surfaced as uncertain/skipped rather than silently trusted.
+- [x] Emoji-only/sticker/image messages may return `Unsupported`/skip in V0.
+- [x] Quoted reply main text and optional quote-region text are evaluated separately; automatic quote-region location remains explicitly unsupported in Phase 3.
 
 ### Evaluation artifact
 
 Provide a small table/console report:
 
 ```text
-fixture | expected | recognized | confidence | elapsed_ms
+fixture | expected | raw_recognized | normalized_recognized | status | ocr_confidence | raw_exact_match | normalized_match | raw_cer | normalized_cer | elapsed_ms
 ```
+
+`exact_match` means literal equality between the expected text and raw OCR output.
+Normalization is evaluated separately and can never promote a raw mismatch to an
+exact match.
+
+Implementation evidence:
+- the evaluation harness accepts capture-relative bubble bounds, extracts only those
+  crops, and writes both a Markdown report and the exact crop PNGs used;
+- Windows Media OCR and Tesseract `chi_sim+eng` adapters were compared on the same
+  real WeChat crops using raw/upscaled variants;
+- no single candidate dominated: Windows OCR was strongest on short Chinese but does
+  not expose confidence, while Tesseract was strongest on the long wrapped, mixed,
+  and quoted-region samples and exposes `OcrConfidence`;
+- the candidate composition therefore uses confidence-bearing Tesseract results at or
+  above `0.90`, with Windows OCR as the short-text fallback; every engine remains behind
+  `IOcrEngine`;
+- after safety-threshold recalibration, only results with Tesseract confidence at or
+  above `0.90` are promoted to `Recognized`; all evaluated incorrect adaptive outputs
+  are now `LowConfidence` or `NoText`, never trusted text;
+- pure English is covered by both an automated OCR integration test and a real
+  WeChat English-only bubble captured from File Transfer Assistant;
+- Tesseract results below `0.90` return `LowConfidence`; Windows results preserve
+  `OcrConfidence = null` because that API supplies no confidence value. Adaptive
+  fallback text is also marked `LowConfidence` rather than silently promoted.
+
+The reproducible public manifest is `fixtures/ocr/phase3-public.json`. The full local
+run, including a private long wrapped capture, is written to the gitignored
+`.ocr-cache/phase3-evaluation.md`; its source crops are in
+`.ocr-cache/phase3-evaluation-crops/`.
+
+The Tesseract rows are a real-model integration check, not part of the hermetic unit
+suite: the pinned language models are downloaded into the gitignored `.ocr-cache`
+directory. Unit tests cover crop isolation, preprocessing, normalization, adaptive
+threshold/fallback behavior, Windows OCR, and the committed real screenshot crop.
+
+Final manual-acceptance evidence in the private/gitignored evaluation area:
+- 11 short Chinese bubbles were taken directly from Phase 2 detector boxes across two
+  real local captures;
+- adaptive output produced 7/11 normalized matches: 2 `Recognized`, 5 conservatively
+  `LowConfidence`; the remaining 3 normalized mismatches were
+  `LowConfidence` and the one-character sample returned `NoText`;
+- no incorrect adaptive result was left as `Recognized`; the observed corpus-level
+  normalized character error rate was `0.222` (8 edit operations over 36 expected
+  characters);
+- all 11 generated short-message crops and the existing six main/quote evaluation
+  crops were visually inspected and contain only their intended bubble or separately
+  supplied quote region;
+- the short-set manifest, full candidate tables, and crop PNGs remain under
+  `.ocr-cache/` and are intentionally not committed.
+
+Final PaddleOCR recognition-only benchmark evidence:
+- `scripts/paddle_ocr_benchmark.py` uses the official `TextRecognition` module only;
+  the existing Phase 2 detector supplies the crop geometry and Paddle text detection
+  is never invoked;
+- PaddlePaddle `3.3.0` and PaddleOCR `3.7.0` ran locally on `gpu:0` (RTX 5080 Laptop
+  GPU). One warmup per model was excluded from timing;
+- on the same 11 private short-Chinese crops, both `PP-OCRv6_small_rec` and
+  `PP-OCRv6_medium_rec` produced 10/11 raw-exact strings and raw/normalized corpus
+  CER `0.056`; Adaptive OCR produced 7/11 normalized matches and normalized corpus
+  CER `0.222` (its raw layer retains engine-inserted CJK spacing);
+- across all 18 real crops, each Paddle model produced 12/18 raw-exact and 12/18
+  normalized matches; Adaptive OCR produced 0/18 raw-exact and 10/18 normalized
+  matches because its engines expose raw OCR spacing/line artifacts separately;
+- the real English fixture expected `Hello OCR test 123, I just got home.` while
+  PP-OCRv6 small returned `Hello OCR test 123,I just got home.`. The corrected
+  evaluator reports `raw_exact_match=false`, `normalized_match=false`, and raw/
+  normalized CER `0.028` rather than hiding the missing space;
+- PP-OCRv6 small produced five incorrect raw outputs with `rec_score >= 0.90`;
+  medium produced four.
+  Therefore `rec_score` remains an uncalibrated engine-specific diagnostic and must
+  not by itself promote text to trusted `Recognized` status;
+- direct whole-crop recognition truncated the long wrapped and quote-region samples,
+  confirming that a future Paddle production adapter would need an explicit
+  recognition-only line-splitting policy without reintroducing Paddle text detection;
+- the two independently generated crop sets were pixel-identical for all 18 inputs.
+  Full reports and crops are stored under `.ocr-cache/` and are not committed.
+
+Final Phase 3 conclusions:
+- `PP-OCRv6_small_rec` materially improves short/single-line Chinese recognition;
+- `PP-OCRv6_medium_rec` is rejected because it produced no accuracy benefit;
+- Paddle `rec_score` is uncalibrated, wrong high-score outputs were observed, and it
+  must not be treated as a correctness probability;
+- whole-crop Paddle recognition truncates multiline and quoted-region text;
+- existing Adaptive/Tesseract remains useful for multiline cases;
+- future Paddle production use requires explicit routing and disagreement handling,
+  not `rec_score` thresholds alone;
+- Paddle remains an evaluated candidate and is not productionized in this PR.
+
+The user supplied and accepted the real English-bubble test as the final manual gate.
+The corrected 18-crop evaluation completed successfully, so Phase 3 is PASS. Phase 4
+remains unimplemented and must begin separately after this PR is merged.
 
 ---
 

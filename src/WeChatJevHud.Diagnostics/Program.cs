@@ -1,7 +1,35 @@
+using System.Text;
+using System.Text.Json;
 using WeChatJevHud.Capture;
 using WeChatJevHud.Core.Geometry;
+using WeChatJevHud.Ocr;
 using WeChatJevHud.Vision;
 using WeChatJevHud.Windows;
+
+var ocrEvaluationIndex = FindOption(args, "--ocr-evaluate");
+if (ocrEvaluationIndex >= 0)
+{
+    if (ocrEvaluationIndex + 1 >= args.Length)
+    {
+        Console.Error.WriteLine("--ocr-evaluate requires a JSON manifest path.");
+        return 64;
+    }
+
+    try
+    {
+        var tessdata = OptionValue(args, "--tessdata")
+            ?? Path.Combine(Environment.CurrentDirectory, ".ocr-cache", "tessdata");
+        return await EvaluateOcrAsync(
+            args[ocrEvaluationIndex + 1],
+            tessdata,
+            OptionValue(args, "--ocr-output"));
+    }
+    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or ArgumentException or InvalidOperationException or NotSupportedException)
+    {
+        Console.Error.WriteLine($"OCR evaluation failed: {exception.Message}");
+        return 5;
+    }
+}
 
 var detectIndex = FindOption(args, "--detect");
 if (detectIndex >= 0)
@@ -116,6 +144,109 @@ static int AnalyzeAndWrite(CapturedFrame frame, string outputPath)
     return 0;
 }
 
+static async Task<int> EvaluateOcrAsync(
+    string manifestPath,
+    string tessdataPath,
+    string? outputPath)
+{
+    var fullManifestPath = Path.GetFullPath(manifestPath);
+    var manifest = JsonSerializer.Deserialize<OcrEvaluationManifest>(
+        await File.ReadAllTextAsync(fullManifestPath),
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+        ?? throw new InvalidOperationException("OCR evaluation manifest is empty.");
+    if (manifest.Fixtures.Count == 0)
+    {
+        throw new InvalidOperationException("OCR evaluation manifest has no fixtures.");
+    }
+
+    var manifestDirectory = Path.GetDirectoryName(fullManifestPath)!;
+    var frames = new Dictionary<string, CapturedFrame>(StringComparer.OrdinalIgnoreCase);
+    var fixtures = new List<OcrEvaluationFixture>(manifest.Fixtures.Count);
+    foreach (var item in manifest.Fixtures)
+    {
+        var imagePath = Path.GetFullPath(item.Image, manifestDirectory);
+        if (!frames.TryGetValue(imagePath, out var frame))
+        {
+            frame = PngFrameReader.Load(imagePath);
+            frames.Add(imagePath, frame);
+        }
+
+        fixtures.Add(new OcrEvaluationFixture(
+            item.Name,
+            item.Expected,
+            new ImageCrop(frame, new CapturePixelRect(item.X, item.Y, item.Width, item.Height))));
+    }
+
+    const double trustedTesseractThreshold = 0.90;
+    var evaluator = new OcrEvaluator();
+    using var tesseractRaw = new TesseractOcrEngine(
+        Path.GetFullPath(tessdataPath),
+        lowConfidenceThreshold: trustedTesseractThreshold);
+    using var tesseractUpscaled = new TesseractOcrEngine(
+        Path.GetFullPath(tessdataPath),
+        lowConfidenceThreshold: trustedTesseractThreshold,
+        preparation: OcrImagePreparation.Upscaled);
+    var windowsRaw = new WindowsMediaOcrEngine("zh-Hans-CN");
+    var windowsUpscaled = new WindowsMediaOcrEngine("zh-Hans-CN", OcrImagePreparation.Upscaled);
+    var adaptive = new AdaptiveOcrEngine(
+        [tesseractRaw, tesseractUpscaled],
+        windowsUpscaled,
+        confidenceThreshold: trustedTesseractThreshold);
+    IOcrEngine[] engines =
+    [
+        windowsRaw,
+        windowsUpscaled,
+        tesseractRaw,
+        tesseractUpscaled,
+        adaptive,
+    ];
+
+    var report = new StringBuilder();
+    foreach (var engine in engines)
+    {
+        WriteLine($"## engine: {engine.Name}");
+        WriteLine("| fixture | expected | raw_recognized | normalized_recognized | status | ocr_confidence | raw_exact_match | normalized_match | raw_cer | normalized_cer | elapsed_ms |");
+        WriteLine("| --- | --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: |");
+        var rows = await evaluator.EvaluateAsync(engine, fixtures, CancellationToken.None);
+        foreach (var row in rows)
+        {
+            var confidence = row.OcrConfidence is { } value ? value.ToString("F3") : "n/a";
+            WriteLine(
+                $"| {TableCell(row.Fixture)} | {TableCell(row.Expected)} | {TableCell(row.RawRecognized)} | {TableCell(row.NormalizedRecognized)} | {row.Status} | {confidence} | {row.RawExactMatch.ToString().ToLowerInvariant()} | {row.NormalizedMatch.ToString().ToLowerInvariant()} | {row.RawCharacterErrorRate:F3} | {row.NormalizedCharacterErrorRate:F3} | {row.Elapsed.TotalMilliseconds:F1} |");
+        }
+
+        WriteLine();
+    }
+
+    if (!string.IsNullOrWhiteSpace(outputPath))
+    {
+        var fullOutputPath = Path.GetFullPath(outputPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullOutputPath)!);
+        await File.WriteAllTextAsync(fullOutputPath, report.ToString());
+        Console.WriteLine($"OCR evaluation artifact: {fullOutputPath}");
+
+        var cropDirectory = Path.Combine(
+            Path.GetDirectoryName(fullOutputPath)!,
+            $"{Path.GetFileNameWithoutExtension(fullOutputPath)}-crops");
+        Directory.CreateDirectory(cropDirectory);
+        foreach (var fixture in fixtures)
+        {
+            var cropPath = Path.Combine(cropDirectory, $"{SafeFileName(fixture.Name)}.png");
+            PngFrameWriter.Save(ImageCropExtractor.Extract(fixture.Crop), cropPath);
+        }
+
+        Console.WriteLine($"OCR crop artifacts: {cropDirectory}");
+    }
+
+    return 0;
+
+    void WriteLine(string value = "")
+    {
+        Console.WriteLine(value);
+        report.AppendLine(value);
+    }
+}
+
 static int FindOption(string[] arguments, string option) =>
     Array.FindIndex(arguments, argument => argument.Equals(option, StringComparison.OrdinalIgnoreCase));
 
@@ -138,3 +269,27 @@ static string FormatDesktop(DesktopPixelRect rect) =>
 
 static string FormatCapture(CapturePixelRect rect) =>
     $"x={rect.X}, y={rect.Y}, width={rect.Width}, height={rect.Height}";
+
+static string TableCell(string value) =>
+    value
+        .Replace("\\", "\\\\", StringComparison.Ordinal)
+        .Replace("\r", "\\r", StringComparison.Ordinal)
+        .Replace("\n", "\\n", StringComparison.Ordinal)
+        .Replace('|', '¦');
+
+static string SafeFileName(string value)
+{
+    var invalid = Path.GetInvalidFileNameChars();
+    return new string(value.Select(character => invalid.Contains(character) ? '_' : character).ToArray());
+}
+
+internal sealed record OcrEvaluationManifest(List<OcrEvaluationManifestItem> Fixtures);
+
+internal sealed record OcrEvaluationManifestItem(
+    string Name,
+    string Image,
+    string Expected,
+    int X,
+    int Y,
+    int Width,
+    int Height);

@@ -3,7 +3,10 @@ param(
     [switch]$Capture,
     [switch]$CaptureDetect,
     [string]$Detect,
-    [string]$Output
+    [string]$Output,
+    [string]$OcrEvaluate,
+    [string]$Tessdata,
+    [string]$OcrOutput
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,6 +21,9 @@ try {
     if ($CaptureDetect) { $arguments += '--capture-detect' }
     if ($Detect) { $arguments += @('--detect', $Detect) }
     if ($Output) { $arguments += @('--output', $Output) }
+    if ($OcrEvaluate) { $arguments += @('--ocr-evaluate', $OcrEvaluate) }
+    if ($Tessdata) { $arguments += @('--tessdata', $Tessdata) }
+    if ($OcrOutput) { $arguments += @('--ocr-output', $OcrOutput) }
     & $dotnet @arguments
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
