@@ -1,7 +1,7 @@
 # WeChat × Jev Conversation HUD
 
-This checkout implements accepted Phases 0–3. It does not implement the new-message
-observer, Jev calls, or the HUD overlay.
+This checkout implements accepted Phases 0–4. It does not implement Phase 5 Jev
+calls or the HUD overlay.
 
 ## What is available
 
@@ -10,6 +10,9 @@ observer, Jev calls, or the HUD overlay.
 - `WeChatJevHud.Vision`: capture-relative chat ROI location, `Remote`/`Self`/`Unknown` text-bubble detection, heuristic detection scores, timing, and annotated debug rendering.
 - Replaceable interfaces for window tracking, capture, bubble detection, OCR, Jev, and overlay rendering.
 - `WeChatJevHud.Ocr.Windows` and `WeChatJevHud.Ocr.Tesseract`: crop-only Simplified Chinese/English OCR adapters, explicit nullable `OcrConfidence`, low-confidence status, preprocessing variants, and an adaptive candidate policy.
+- `WeChatJevHud.Observer`: in-memory change detection, conversation epochs, ordered
+  visible-message reconciliation, duplicate suppression, and Bootstrap/History/LiveNew
+  observation state.
 - Per-Monitor DPI Awareness V2 manifests for both runnable programs.
 
 The Phase 1 capture adapter first asks WeChat's `MMUIRenderSubWindow*` child to paint into an off-screen bitmap. If that path is unavailable, it falls back to copying the visible desktop pixels occupied by the render/client bounds and reports `VisibleDesktopFallback`; that fallback requires WeChat to be unobscured. WeChat must always be restored for an explicit capture. This is the deliberately small capture spike permitted by `docs/SPEC.md`; a Windows Graphics Capture adapter can replace it later without changing callers.
@@ -96,6 +99,37 @@ Jev probability. See the current
 [PaddleOCR Text Recognition documentation](https://www.paddleocr.ai/main/en/version3.x/module_usage/text_recognition.html)
 for the upstream API.
 
+### Phase 4 live message observer
+
+Run the observer against the Windows desktop WeChat session from PowerShell:
+
+```powershell
+.\scripts\observe.ps1
+```
+
+It captures in memory only, establishes the visible messages as a bootstrap baseline,
+then reports conversation epochs, evidence-based identity decisions, new-message
+events, duplicate suppression, counters, and per-stage timings. Header identity uses a
+scale-tolerant perceptual comparison plus visible-message continuity and a three-frame
+switch confirmation. Only strong continuity against the immediately previous visible
+snapshot can rebase a changed header; permissive visual/history matches are diagnostic
+evidence and cannot suppress a real switch. Resize/DPI layout transitions cannot
+immediately change epochs. After a confirmed switch, the observer waits for the first
+stable visible snapshot before establishing the new baseline. A transitional empty
+viewport therefore cannot replay subsequently rendered history as new; a genuinely
+empty conversation becomes the baseline only after three stable empty observations.
+Non-empty snapshots must remain visually stable for two consecutive observations, so
+incrementally rendered existing history remains Bootstrap throughout settling.
+Chat text is redacted by default. For an explicitly opted-in, truncated normalized-text
+diagnostic:
+
+```powershell
+.\scripts\observe.ps1 -DebugText
+```
+
+Use `-Seconds 30` for a bounded run or `-IntervalMilliseconds 200` to change the
+lightweight check interval. The observer never writes screenshots or chat logs.
+
 From WSL, invoke the same Windows scripts through interop, for example:
 
 ```bash
@@ -104,7 +138,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w scripts/di
 
 ## Secrets and later phases
 
-No TypeSafe/Jev code runs through Phase 3. The official TypeSafe skill is installed at `.agents/skills/typesafe-ai/`. Before Phase 5 implementation, the live-docs gate in `docs/ACCEPTANCE.md` still applies.
+No TypeSafe/Jev code runs through Phase 4. The official TypeSafe skill is installed at `.agents/skills/typesafe-ai/`. Before Phase 5 implementation, the live-docs gate in `docs/ACCEPTANCE.md` still applies.
 
 When Jev is implemented later, keep the key outside the repository, for example in the current Windows user's environment:
 

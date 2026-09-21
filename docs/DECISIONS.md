@@ -384,3 +384,78 @@ CJK OCR artifacts measurable.
 - Call normalized equality an exact match.
 - Remove spaces adjacent to every Unicode punctuation character.
 - Discard raw engine output before evaluation.
+
+---
+
+## D-018 — Message observation uses epoch-scoped ordered reconciliation
+
+**Decision**
+
+Phase 4 places stateful observation behind `IMessageObserver`. It establishes a
+bootstrap baseline per visual conversation epoch, compares cheap chat-ROI fingerprints
+before bubble detection, and reconciles changed views with ordered sequence alignment.
+Logical identity combines message side, visual crop fingerprint, normalized OCR text
+when already available, and relative order. Geometry is updated state, not identity.
+
+A replaceable visual chat-header evidence provider canonicalizes a stable header
+subregion and compares perceptual hashes by distance; the HWND title is never a
+conversation key. A header mismatch is only a possible conversation change. The
+observer reconciles visible messages before deciding, rebases the accepted header when
+message continuity is strong, and requires three stable observations without strong
+continuity to confirm a switch. Strong identity continuity is scoped to the immediately
+previous visible snapshot and requires trusted normalized text plus side, or a stricter
+visual threshold across at least two ordered matches. Permissive perceptual matches and
+matches found only in older recent history remain weak evidence and cannot approve a
+rebase. A live-tail match is strong only with independently observed trusted text or as
+part of the multi-message strict visual continuity. OCR reused from a visual match does
+not become independent trusted-text evidence.
+Dimension/ROI changes enter an explicit layout transition and cannot cause an immediate
+epoch change. The provider owns its opaque evidence and comparison thresholds so
+another identity implementation does not have to expose perceptual-hash internals to
+the observer. Recent state is bounded and memory-only. Only non-empty `Recognized` OCR
+is semantic-ready.
+
+A confirmed switch enters `AwaitingInitialSnapshot` rather than accepting an empty
+transition frame as the new baseline. The first stable non-empty view is bootstrapped.
+A non-empty view is stable after two consecutive strongly equivalent observations by
+default, while all messages discovered during settling remain Bootstrap. A truly empty
+conversation is established only after a configurable stable-empty gate (three
+observations by default), after which its first later message may be live-new. Both
+gates are explicit options. The final stable non-empty snapshot supplies the live-tail
+anchor; finalizing an empty baseline clears provisional settling messages and tail.
+This baseline-settling state is separate from conversation-identity evidence: it fixes
+render timing without changing the strong/weak identity hierarchy.
+
+**Scrolling policy**
+
+The observer remembers the chronological live tail. Bubbles discovered before or away
+from that anchor are conservative history, while unmatched suffixes after the known
+live tail are live-new. Insufficient-overlap cases are suppressed rather than risk
+replaying old history. An all-identical ambiguous growth is also history unless a
+distinct matched bubble anchors the live edge. Ordered alignment deliberately
+preserves separate occurrences of repeated equal text when the sequence is anchored.
+
+**Reason**
+
+Screen Y changes during append, scroll, resize, and restore. A global side-plus-text
+set would collapse legitimate repeats, while coordinate identity would replay nearly
+everything after movement. Epoch-scoped sequence reconciliation retains identity
+without persistent chat logging.
+
+The identity policy deliberately prefers temporarily retaining the current epoch when
+evidence is ambiguous. This avoids false bootstrap/OCR storms during resize and
+per-monitor DPI rerendering. A confirmed different conversation still clears the old
+state once, waits for the target view to settle, bootstraps the new visible view, and
+emits no old messages as live-new.
+
+**Rejected alternatives**
+
+- Treat bubble Y coordinate as message identity.
+- Globally deduplicate by side plus text.
+- Emit every newly visible bubble after scrolling.
+- Use the top-level WeChat HWND title as conversation identity.
+- Treat exact raw header-pixel hash inequality as an immediate conversation switch.
+- Confirm a switch from one mismatching frame.
+- Rebase from two permissive visual matches anywhere in recent history.
+- Treat a permissive perceptual match to the old live tail as strong continuity.
+- Persist screenshots or raw conversation history to support reconciliation.

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\WeChatJevHud.Core\WeChatJevHud.Core.csproj" />
+    <ProjectReference Include="..\WeChatJevHud.Capture\WeChatJevHud.Capture.csproj" />
+    <ProjectReference Include="..\WeChatJevHud.Vision\WeChatJevHud.Vision.csproj" />
+    <ProjectReference Include="..\WeChatJevHud.Ocr\WeChatJevHud.Ocr.csproj" />
+  </ItemGroup>
+</Project>

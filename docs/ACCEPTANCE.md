@@ -249,11 +249,13 @@ Final Phase 3 conclusions:
 
 The user supplied and accepted the real English-bubble test as the final manual gate.
 The corrected 18-crop evaluation completed successfully, so Phase 3 is PASS. Phase 4
-remains unimplemented and must begin separately after this PR is merged.
+began separately after the Phase 3 PR was merged.
 
 ---
 
 ## Phase 4 — New-message observer and conversation state
+
+**Status: PASS — automated and real-machine manual acceptance complete.**
 
 ### Goal
 
@@ -261,14 +263,122 @@ Process new/changed messages once, not every frame.
 
 ### Acceptance
 
-- [ ] Lightweight change detection avoids unnecessary OCR on unchanged frames.
-- [ ] A visible message persisting across frames does not trigger repeated OCR/Jev work.
-- [ ] A newly appearing remote text message produces one normalized `ChatMessage`.
-- [ ] Recent-message state is kept in memory.
-- [ ] Scrolling does not cause every old message to become "new" under normal conditions.
-- [ ] Switching conversation clears/reconciles state rather than mixing two contacts.
-- [ ] No raw conversation persistence by default.
-- [ ] Timings/counts are instrumented.
+- [x] Lightweight change detection avoids unnecessary OCR on unchanged frames.
+- [x] A visible message persisting across frames does not trigger repeated OCR work.
+- [x] A newly appearing remote text message produces one normalized `ObservedMessage`.
+- [x] Recent-message state is bounded and kept in memory.
+- [x] Deterministic scroll reconciliation does not replay ordinary old history.
+- [x] Switching conversation creates a new epoch and replaces recent state.
+- [x] No raw conversation or screenshot persistence by default.
+- [x] Timings/counts are instrumented.
+
+Automated evidence:
+- stable identical frames skip bubble detection and OCR;
+- one appended remote message and one appended self message each emit once;
+- two consecutive Remote `好` messages receive distinct logical IDs;
+- Self `嗯` and Remote `嗯` remain distinct;
+- scrolling to existing history and returning to the live edge does not replay known
+  messages;
+- an all-identical sequence growing by one ambiguous bubble is conservatively treated
+  as history rather than replayed as live-new;
+- a true stable low-overlap header change increments the epoch once, clears prior
+  state, and bootstraps the new view without a fresh-message event;
+- a minimize/restore-equivalent capture suspension retains reconciliation state and
+  does not replay the restored frame;
+- `LowConfidence` OCR remains observable but has `IsTrustedForSemantics = false`;
+- message-count limits are configurable and enforced;
+- slight header rerendering, wider/narrower resize, simulated 150%/100% DPI scaling,
+  and gradual multi-frame resize retain one epoch;
+- six strict matches against the immediately previous visible snapshot survive resize
+  and rebase the accepted identity without repeated OCR;
+- trusted text plus side contributes strong previous-visible continuity;
+- two permissive visual matches in a different chat do not rebase;
+- two to four history-only perceptual matches do not prevent pending/confirmed switch;
+- a permissive visual match to the old live tail is weak and does not approve rebase;
+- a true low-overlap switch requires three stable observations, creates exactly one
+  epoch, and bootstraps without replay;
+- remaining in the switched conversation does not increment the epoch again;
+- switching back creates exactly one further epoch and does not replay old state;
+- empty and near-empty resize transitions settle without epoch churn;
+- a same-size chat-ROI change starts a layout transition;
+- returning to the accepted identity interrupts and resets a pending switch;
+- replacing one pending candidate with another does not reuse the first candidate's
+  cached OCR;
+- a confirmed switch followed by one or more transitional empty frames keeps the new
+  epoch in `AwaitingInitialSnapshot`; when existing target history appears, it is
+  Bootstrap and emits zero `NEW` events;
+- incrementally rendered non-empty target history remains Bootstrap until two
+  consecutive strongly equivalent snapshots establish the baseline, and the final
+  bootstrap tail still anchors a subsequent live append;
+- a genuinely empty switched conversation establishes an empty baseline only after
+  the configurable stable-empty gate (three observations by default);
+- if a provisional non-empty snapshot precedes that stable-empty result, its staged
+  messages and tail are discarded before the empty baseline is established;
+- after that genuine empty baseline, the first later message emits exactly one `NEW`;
+- temporary zero-bubble frames during a same-conversation layout transition neither
+  change the epoch nor reset the established baseline;
+- existing normal non-empty switch behavior remains covered by the three-observation
+  confirmation and switch-back regression tests.
+
+Real-machine diagnostic evidence before manual acceptance:
+- a six-second redacted run checked 20 captured frames;
+- the first frame ran bubble detection once and OCRed three bootstrap bubbles;
+- the remaining 19 identical frames skipped bubble detection and OCR;
+- no message was emitted, no screenshot/chat log was written, and no raw text was
+  printed;
+- observed first-frame timings were `capture_ms=78.3`, `frame_check_ms=27.1`,
+  `change_detect_ms=1.1`, `bubble_detect_ms=20.0`, `ocr_ms=587.5`, and
+  `observer_reconcile_ms=8.1`;
+- the final 5.23-second unchanged window averaged `0.75%` process CPU normalized
+  across logical processors. These are one-run diagnostics, not performance claims.
+
+Blocking manual evidence from the first acceptance attempt:
+- 3,311 frames were checked and 67 changed frames ran bubble detection;
+- scrolling produced `history`/duplicate suppression rather than a `NEW` replay storm;
+- resize and cross-monitor capture continued without a crash;
+- the same conversation incorrectly advanced from epoch 3 through epoch 11;
+- the run ended with 10 conversation switches and 161 OCR calls;
+- the cause was exact raw header-pixel inequality committing a switch before visible
+  message reconciliation.
+
+Blocking manual evidence from the second acceptance attempt:
+- same-chat resize and 150%/100% DPI moves remained in epoch 1;
+- strong same-chat continuity, including 6/6 overlap plus live-tail continuity, rebased
+  large header changes correctly;
+- scrolling and minimize/restore remained suppressed without crashes or replay;
+- deliberate switches to visibly different conversations incorrectly remained in
+  epoch 1 with `REBASE_SAME_CONVERSATION` decisions, including aggregate overlaps of
+  2/5, 4/7, and 3/4 without live-tail matches;
+- the cause was treating permissive perceptual matches against the entire 25-message
+  history as strong identity evidence. The second fix separates strong previous-visible
+  continuity from weak visual/history alignment.
+
+Blocking manual evidence from the third acceptance attempt:
+- same-chat resize and cross-DPI behavior passed without epoch churn;
+- normal non-empty conversation switches followed
+  `pending_switch=1/3` -> `pending_switch=2/3` -> one confirmed epoch increment, and
+  visible target history was bootstrap-only;
+- weak visual overlap no longer suppressed a genuine switch;
+- one switch confirmed while WeChat temporarily showed zero bubbles, and the first
+  existing target message rendered afterward was incorrectly emitted as `NEW`;
+- the cause was treating the confirming empty transition frame as an established empty
+  baseline. The post-switch baseline fix now waits for a non-empty initial snapshot or
+  a stable-empty settle gate. At that point, the exact real-machine transition still
+  required retesting.
+
+Final manual acceptance evidence (2026-09-21):
+
+- the earlier real-machine run retained one epoch through same-conversation resize and
+  150%/100% DPI moves;
+- each genuine switch followed `PendingSwitch` 1/3 -> 2/3 -> exactly one
+  `ConfirmedSwitch`, and switch-back created exactly one further epoch;
+- `AwaitingInitialSnapshot` settled before baseline establishment, while existing
+  target history remained Bootstrap and produced no `NEW` replay;
+- neither switch produced a replay storm, and duplicate suppression remained stable;
+- uncertain OCR remained observable with `semantic_ready=false`;
+- the final inspected run recorded two confirmed switches, zero emitted/new messages,
+  and no epoch churn. The user accepted the complete real-machine workflow, so Phase 4
+  is PASS. Phase 5 remains separate and unimplemented.
 
 ---
 

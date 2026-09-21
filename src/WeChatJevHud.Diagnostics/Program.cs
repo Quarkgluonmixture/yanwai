@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using WeChatJevHud.Capture;
 using WeChatJevHud.Core.Geometry;
 using WeChatJevHud.Ocr;
+using WeChatJevHud.Observer;
 using WeChatJevHud.Vision;
 using WeChatJevHud.Windows;
 
@@ -51,6 +53,19 @@ if (detectIndex >= 0)
     {
         Console.Error.WriteLine($"Detection failed: {exception.Message}");
         return 4;
+    }
+}
+
+if (FindOption(args, "--observe") >= 0)
+{
+    try
+    {
+        return await ObserveWeChatAsync(args);
+    }
+    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+    {
+        Console.Error.WriteLine($"Observer failed: {exception.Message}");
+        return 6;
     }
 }
 
@@ -245,6 +260,286 @@ static async Task<int> EvaluateOcrAsync(
         Console.WriteLine(value);
         report.AppendLine(value);
     }
+}
+
+static async Task<int> ObserveWeChatAsync(string[] arguments)
+{
+    var intervalMilliseconds = PositiveIntOption(arguments, "--interval-ms", 200)!.Value;
+    var durationSeconds = PositiveIntOption(arguments, "--observe-seconds", null);
+    var debugText = FindOption(arguments, "--debug-text") >= 0;
+    var tessdata = Path.GetFullPath(
+        OptionValue(arguments, "--tessdata")
+        ?? Path.Combine(Environment.CurrentDirectory, ".ocr-cache", "tessdata"));
+    if (!Directory.Exists(tessdata))
+    {
+        throw new InvalidOperationException(
+            $"Tesseract data was not found at {tessdata}. Complete the Phase 3 OCR setup or pass --tessdata.");
+    }
+
+    using var tesseractRaw = new TesseractOcrEngine(tessdata, lowConfidenceThreshold: 0.90);
+    using var tesseractUpscaled = new TesseractOcrEngine(
+        tessdata,
+        lowConfidenceThreshold: 0.90,
+        preparation: OcrImagePreparation.Upscaled);
+    var adaptive = new AdaptiveOcrEngine(
+        [tesseractRaw, tesseractUpscaled],
+        new WindowsMediaOcrEngine("zh-Hans-CN", OcrImagePreparation.Upscaled),
+        confidenceThreshold: 0.90);
+    IMessageObserver observer = new MessageObserver(
+        new DarkThemeChatRegionLocator(),
+        new DarkThemeBubbleDetector(),
+        adaptive,
+        new ChatRoiChangeDetector(),
+        new VisualConversationIdentityProvider());
+
+    observer.ConversationChanged += (_, eventArgs) =>
+    {
+        Console.WriteLine(eventArgs.PreviousEpoch is null
+            ? $"[epoch {eventArgs.CurrentEpoch.Id}] observation started"
+            : $"conversation switch confirmed epoch {eventArgs.PreviousEpoch.Id} -> {eventArgs.CurrentEpoch.Id}");
+    };
+    observer.MessageObserved += (_, eventArgs) =>
+    {
+        if (eventArgs.Message.Origin != MessageObservationKind.LiveNew)
+        {
+            Console.WriteLine(
+                $"[epoch {eventArgs.Message.ConversationEpochId}] {eventArgs.Message.Origin.ToString().ToLowerInvariant()} " +
+                $"{eventArgs.Message.Side} {DiagnosticText(eventArgs.Message, debugText)} " +
+                $"status={eventArgs.Message.OcrStatus} semantic_ready={eventArgs.Message.IsTrustedForSemantics.ToString().ToLowerInvariant()}");
+        }
+    };
+    observer.NewMessageObserved += (_, eventArgs) =>
+    {
+        Console.WriteLine(
+            $"[epoch {eventArgs.Message.ConversationEpochId}] NEW {eventArgs.Message.Side} " +
+            $"{DiagnosticText(eventArgs.Message, debugText)} id={eventArgs.Message.Id} " +
+            $"status={eventArgs.Message.OcrStatus} semantic_ready={eventArgs.Message.IsTrustedForSemantics.ToString().ToLowerInvariant()}");
+    };
+
+    using var cancellation = new CancellationTokenSource();
+    if (durationSeconds is { } seconds)
+    {
+        cancellation.CancelAfter(TimeSpan.FromSeconds(seconds));
+    }
+
+    ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+    {
+        eventArgs.Cancel = true;
+        cancellation.Cancel();
+    };
+    Console.CancelKeyPress += cancelHandler;
+
+    var tracker = new Win32WeChatWindowTracker();
+    var capture = new Win32ScreenRegionCapture();
+    using var process = Process.GetCurrentProcess();
+    var stableWindow = Stopwatch.StartNew();
+    var stableWindowCpuStart = process.TotalProcessorTime;
+    long stableWindowUnchangedFrames = 0;
+    var wasUnavailable = false;
+    Console.WriteLine(
+        $"Observer running every {intervalMilliseconds} ms. Text output is " +
+        $"{(debugText ? "enabled and truncated" : "redacted")}. Press Ctrl+C to stop.");
+
+    try
+    {
+        while (!cancellation.IsCancellationRequested)
+        {
+            var window = tracker.Locate();
+            if (window is null || !window.IsVisible || window.IsMinimized)
+            {
+                if (!wasUnavailable)
+                {
+                    Console.WriteLine("capture suspended: WeChat is unavailable, hidden, or minimized");
+                    wasUnavailable = true;
+                }
+            }
+            else
+            {
+                if (wasUnavailable)
+                {
+                    Console.WriteLine("capture resumed");
+                    wasUnavailable = false;
+                }
+
+                try
+                {
+                    var frame = capture.Capture(window);
+                    var result = await observer.ObserveAsync(frame, cancellation.Token);
+                    PrintIdentityObservation(result.Identity);
+                    PrintBaselineObservation(result);
+                    foreach (var id in result.DuplicateMessageIds)
+                    {
+                        Console.WriteLine($"[epoch {result.Epoch.Id}] duplicate suppressed id={id}");
+                    }
+
+                    if (result.FrameChanged)
+                    {
+                        Console.WriteLine(
+                            $"timing capture_ms={frame.Duration.TotalMilliseconds:F1} " +
+                            $"frame_check_ms={result.Timings.FrameCheck.TotalMilliseconds:F1} " +
+                            $"change_detect_ms={result.Timings.ChangeDetect.TotalMilliseconds:F1} " +
+                            $"bubble_detect_ms={result.Timings.BubbleDetect.TotalMilliseconds:F1} " +
+                            $"ocr_ms={result.Timings.Ocr.TotalMilliseconds:F1} " +
+                            $"observer_reconcile_ms={result.Timings.ObserverReconcile.TotalMilliseconds:F1}");
+                        stableWindow.Restart();
+                        stableWindowCpuStart = process.TotalProcessorTime;
+                        stableWindowUnchangedFrames = 0;
+                    }
+                    else
+                    {
+                        stableWindowUnchangedFrames++;
+                        if (stableWindowUnchangedFrames % 25 == 0)
+                        {
+                            Console.WriteLine(
+                                $"idle timing capture_ms={frame.Duration.TotalMilliseconds:F1} " +
+                                $"frame_check_ms={result.Timings.FrameCheck.TotalMilliseconds:F1} " +
+                                $"change_detect_ms={result.Timings.ChangeDetect.TotalMilliseconds:F1}");
+                        }
+                    }
+                }
+                catch (WindowCaptureUnavailableException exception)
+                {
+                    if (!wasUnavailable)
+                    {
+                        Console.WriteLine($"capture suspended: {exception.Message}");
+                        wasUnavailable = true;
+                    }
+                }
+            }
+
+            await Task.Delay(intervalMilliseconds, cancellation.Token);
+        }
+    }
+    catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+    {
+    }
+    finally
+    {
+        Console.CancelKeyPress -= cancelHandler;
+    }
+
+    stableWindow.Stop();
+    var stableCpu = process.TotalProcessorTime - stableWindowCpuStart;
+    var stableCpuPercent = stableWindow.Elapsed > TimeSpan.Zero
+        ? stableCpu.TotalMilliseconds /
+          (stableWindow.Elapsed.TotalMilliseconds * Environment.ProcessorCount) * 100
+        : 0;
+    PrintObserverCounters(observer.Counters);
+    Console.WriteLine($"idle_window_frames={stableWindowUnchangedFrames}");
+    Console.WriteLine($"idle_window_seconds={stableWindow.Elapsed.TotalSeconds:F2}");
+    Console.WriteLine($"idle_process_cpu_percent={stableCpuPercent:F2}");
+    return 0;
+}
+
+static string DiagnosticText(ObservedMessage message, bool debugText)
+{
+    if (string.IsNullOrEmpty(message.NormalizedText))
+    {
+        return "text=<empty>";
+    }
+
+    if (!debugText)
+    {
+        return $"text=<redacted chars={message.NormalizedText.Length}>";
+    }
+
+    const int limit = 60;
+    var normalized = message.NormalizedText.ReplaceLineEndings(" ");
+    var truncated = normalized.Length <= limit ? normalized : $"{normalized[..limit]}…";
+    return $"text=\"{truncated.Replace("\"", "'", StringComparison.Ordinal)}\"";
+}
+
+static void PrintObserverCounters(ObserverCounters counters)
+{
+    Console.WriteLine("observer counters:");
+    Console.WriteLine($"frames_checked={counters.FramesChecked}");
+    Console.WriteLine($"unchanged_frames={counters.UnchangedFrames}");
+    Console.WriteLine($"changed_frames={counters.ChangedFrames}");
+    Console.WriteLine($"bubble_detection_runs={counters.BubbleDetectionRuns}");
+    Console.WriteLine($"ocr_calls={counters.OcrCalls}");
+    Console.WriteLine($"messages_emitted={counters.MessagesEmitted}");
+    Console.WriteLine($"new_messages={counters.MessagesEmitted}");
+    Console.WriteLine($"duplicates_suppressed={counters.DuplicatesSuppressed}");
+    Console.WriteLine($"conversation_switches={counters.ConversationSwitches}");
+    Console.WriteLine($"identity_mismatch_candidates={counters.IdentityMismatchCandidates}");
+    Console.WriteLine($"identity_rebases={counters.IdentityRebases}");
+    Console.WriteLine($"identity_switches_confirmed={counters.IdentitySwitchesConfirmed}");
+    Console.WriteLine($"identity_switches_suppressed={counters.IdentitySwitchesSuppressed}");
+    Console.WriteLine($"layout_transitions={counters.LayoutTransitions}");
+}
+
+static void PrintIdentityObservation(ConversationIdentityObservation identity)
+{
+    if (!identity.CandidateChanged)
+    {
+        return;
+    }
+
+    var evidence =
+        $"identity_evidence=\"{identity.ProviderDiagnostics}\" " +
+        $"previous_visible_strong_overlap={identity.PreviousVisibleStrongOverlap}/{identity.VisibleCandidates} " +
+        $"previous_visible_weak_overlap={identity.PreviousVisibleWeakOverlap}/{identity.VisibleCandidates} " +
+        $"trusted_text_overlap={identity.TrustedTextOverlap} " +
+        $"live_tail_strong_match={identity.LiveTailStrongMatch.ToString().ToLowerInvariant()} " +
+        $"live_tail_weak_match={identity.LiveTailWeakMatch.ToString().ToLowerInvariant()} " +
+        $"history_only_matches={identity.HistoryOnlyMatches}";
+    switch (identity.Decision)
+    {
+        case ConversationIdentityDecision.RebaseSameConversation:
+            Console.WriteLine($"identity candidate changed {evidence} decision=REBASE_SAME_CONVERSATION");
+            break;
+        case ConversationIdentityDecision.LayoutTransition:
+            Console.WriteLine($"identity candidate changed {evidence} decision=LAYOUT_TRANSITION_SUPPRESSED");
+            break;
+        case ConversationIdentityDecision.PendingSwitch:
+            Console.WriteLine(
+                $"identity candidate changed {evidence} " +
+                $"pending_switch={identity.PendingObservations}/{identity.RequiredObservations}");
+            break;
+        case ConversationIdentityDecision.ConfirmedSwitch:
+            Console.WriteLine($"identity candidate changed {evidence} decision=CONFIRMED_SWITCH");
+            break;
+    }
+}
+
+static void PrintBaselineObservation(ObservationResult result)
+{
+    if (result.Baseline.State == ConversationBaselineState.AwaitingInitialSnapshot)
+    {
+        Console.WriteLine(
+            $"[epoch {result.Epoch.Id}] awaiting initial snapshot " +
+            $"non_empty_observations={result.Baseline.InitialSnapshotObservations}/" +
+            $"{result.Baseline.RequiredInitialSnapshotObservations} " +
+            $"empty_observations={result.Baseline.EmptyObservations}/" +
+            $"{result.Baseline.RequiredEmptyObservations}");
+        return;
+    }
+
+    if (!result.Baseline.EstablishedThisFrame)
+    {
+        return;
+    }
+
+    var kind = result.Baseline.EmptyObservations >= result.Baseline.RequiredEmptyObservations
+        ? "empty baseline established"
+        : "initial snapshot established";
+    Console.WriteLine($"[epoch {result.Epoch.Id}] {kind}");
+}
+
+static int? PositiveIntOption(string[] arguments, string option, int? defaultValue)
+{
+    var raw = OptionValue(arguments, option);
+    if (raw is null)
+    {
+        return defaultValue;
+    }
+
+    if (!int.TryParse(raw, out var parsed) || parsed <= 0)
+    {
+        throw new ArgumentException($"{option} must be a positive integer.");
+    }
+
+    return parsed;
 }
 
 static int FindOption(string[] arguments, string option) =>

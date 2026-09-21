@@ -70,6 +70,7 @@ src/
   WeChatJevHud.Capture/          # window/client frame capture
   WeChatJevHud.Vision/           # ROI, frame diff, bubble detection
   WeChatJevHud.Ocr/              # OCR abstraction + implementation(s)
+  WeChatJevHud.Observer/         # change detection, reconciliation, recent state
   WeChatJevHud.TypeSafe/         # Jev client and typed judgment mapping
   WeChatJevHud.Overlay/          # overlay layout/anchoring
 tests/
@@ -337,6 +338,90 @@ The exact interval should be measured rather than assumed. A starting range arou
 
 Scrolling must be treated differently from a genuinely new message where possible.
 
+Phase 4 exposes one stateful `IMessageObserver` seam. Capture supplies a valid frame;
+the observer owns chat-ROI fingerprinting, visual conversation epochs, bubble
+reconciliation, OCR scheduling, bounded recent state, counters, timings, and message
+events. Capture, ROI/bubble detection, OCR, and conversation identity remain injected
+adapters rather than state hidden in the capture loop.
+
+The first frame in an epoch is a bootstrap: visible bubbles may be OCRed to seed
+context, but they never produce `NewMessageObserved`. The top-level HWND title is not
+used. A replaceable visual-identity provider samples only a stable left/central header
+subregion, excludes dynamic right-side controls, canonicalizes it to fixed grayscale
+grids, and compares average/difference perceptual hashes by Hamming distance plus a
+bounded mean-luminance delta. The default thresholds are explicit in
+`VisualConversationIdentityOptions`; evidence remains opaque outside the replaceable
+identity-provider seam.
+
+A changed header is `PossibleConversationChange`, never an immediate epoch switch.
+The observer first reconciles the candidate view specifically against the immediately
+previous visible-message snapshot. Strong continuity consists of ordered matches using
+trusted normalized OCR text plus side, or at least two matches under a separate strict
+visual threshold; a live tail is strong only when trusted text matches or strict visual
+identity participates in that multi-message ordered continuity. The normal permissive
+perceptual threshold, dimensions/geometry, and
+matches found only in the bounded recent-history buffer are weak evidence. They may
+assist message reconciliation but cannot rebase a changed conversation identity.
+Without strong previous-visible continuity, the same candidate must remain stable for
+three observations before a switch is confirmed. The first two observations remain
+pending and do not mutate the current conversation state or emit messages; pending OCR
+is reused only within that candidate identity. A confirmed switch clears the old state
+exactly once and enters `AwaitingInitialSnapshot`. An empty viewport on the confirming
+frame is not an established empty baseline because WeChat may still be rendering the
+target conversation. A non-empty visible snapshot must remain strongly visually
+equivalent for two consecutive observations by default before it establishes the
+baseline; messages discovered throughout this settling interval remain Bootstrap. If
+the viewport instead remains empty for three stable observations by default, the
+observer establishes a genuine empty baseline; a message arriving afterward may then
+be LiveNew. Both gates are configurable through `ObserverOptions`. Identical frames
+continue through detection only during this short settling gate. Finalization rebases
+the live-tail anchor to the stable non-empty snapshot, while empty finalization
+discards any provisional non-empty settling state.
+
+Frame dimensions or chat-ROI changes start a layout transition. A transition requires
+two stable-layout observations before weak/no-overlap evidence may advance a switch.
+Unstable transition frames cannot switch epochs and avoid OCR when visual continuity
+is not yet available. Empty views rebase after layout stabilization. This policy is
+intentionally conservative across 150%/100% DPI rerendering.
+
+Visible bubble identity uses ordered sequence alignment over side plus visual crop
+fingerprint, with normalized OCR text as a secondary reconciliation signal after OCR
+is already necessary. Geometry is retained and updated but is not identity. This
+allows repeated identical messages to receive distinct logical IDs. A known live-tail
+anchor distinguishes appended suffixes from history discovered by scrolling; when
+there is insufficient overlap, the V0 policy suppresses conservatively instead of
+claiming an old history item is newly received. If an all-identical sequence can be
+explained equally well as an older prefix discovered by scrolling or a new suffix, it
+is treated as history unless another distinct matched bubble anchors the live edge.
+
+The observer reports:
+
+```text
+frames_checked
+unchanged_frames
+changed_frames
+bubble_detection_runs
+ocr_calls
+messages_emitted
+duplicates_suppressed
+conversation_switches
+identity_mismatch_candidates
+identity_rebases
+identity_switches_confirmed
+identity_switches_suppressed
+layout_transitions
+```
+
+Each changed-identity diagnostic also separates
+`previous_visible_strong_overlap`, `previous_visible_weak_overlap`,
+`trusted_text_overlap`, `live_tail_strong_match`, `live_tail_weak_match`, and
+`history_only_matches`. The weak counts exclude matches already classified as strong,
+and reused OCR text is not counted as independent trusted-text evidence. No aggregate
+visual-overlap count is used as switch approval.
+
+and per-frame `frame_check_ms`, `change_detect_ms`, `bubble_detect_ms`, `ocr_ms`, and
+`observer_reconcile_ms`. Identical chat-ROI fingerprints skip bubble detection and OCR.
+
 ---
 
 ## 10. OCR
@@ -435,6 +520,16 @@ Rules:
 - keep state ephemeral by default;
 - distinguish observed text from Jev inference;
 - invalidate/re-evaluate when underlying message text/context changes.
+
+Phase 4 keeps this state in a configurable in-memory buffer (25 messages by default).
+Each observed message retains logical ID, epoch, side, normalized and raw OCR text,
+OCR status/confidence, capture-relative bubble rectangle, first-observed time,
+bootstrap/history/live origin, visibility, and optional quote metadata. Nothing in
+this buffer is persisted by the observer.
+
+`IsTrustedForSemantics` is true only for non-empty `Recognized` OCR output.
+`LowConfidence`, `NoText`, and `Unsupported` messages may remain in observer state but
+must not be treated as semantic-ready by later phases.
 
 ---
 
