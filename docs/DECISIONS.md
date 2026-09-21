@@ -459,3 +459,42 @@ emits no old messages as live-new.
 - Rebase from two permissive visual matches anywhere in recent history.
 - Treat a permissive perceptual match to the old live tail as strong continuity.
 - Persist screenshots or raw conversation history to support reconciliation.
+
+---
+
+## D-019 — Production OCR uses routed evidence, not Paddle score trust
+
+**Decision**
+
+Phase 4.5 runs `PP-OCRv6_small_rec` through a persistent Windows-native Python worker
+for scale-aware single-line crops only. The worker uses PaddleOCR recognition without
+Paddle text detection, loads and warms once, transfers image bytes in memory, and
+reports an ID-correlated UTF-8 protocol plus exact runtime/device metadata. Multiline,
+wrapped, quoted, and ambiguous crops remain on the existing Adaptive path.
+
+Paddle `rec_score` is retained only as `EngineScoreKind = paddle_rec_score`; it never
+populates `OcrConfidence` or establishes semantic trust. Paddle-only results and
+Paddle/secondary disagreement remain untrusted. Existing trusted Adaptive results
+remain trusted. A new agreement result is trusted only when Paddle, the selected
+Adaptive output, and a separate confidence-bearing OCR candidate normalize to the same
+text. Worker failure falls back to Adaptive without terminating observation.
+
+**Reason**
+
+Phase 3 showed strong short-Chinese accuracy from the small model, no benefit from the
+medium model, high-score wrong Paddle outputs, and multiline truncation. An initial
+Phase 4.5 two-engine policy also reproduced a shared wrong result (`啦` read as `哒`) in
+both Paddle and Windows OCR. Requiring stronger independent evidence reduced the
+18-crop production-policy evaluation from one trusted-wrong result to zero without
+using an invented Paddle score threshold.
+
+**Rejected alternatives**
+
+- Launch one Python process per crop.
+- Make WSL part of the installed application runtime.
+- Use `PP-OCRv6_medium_rec` after it showed no accuracy benefit.
+- Use Paddle text detection instead of the accepted bubble detector.
+- Route a whole multiline/quoted crop through Paddle recognition.
+- Map `rec_score` to `OcrConfidence` or trust a high score.
+- Trust agreement between Paddle and uncalibrated Windows OCR without additional
+  independent evidence.

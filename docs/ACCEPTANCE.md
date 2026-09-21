@@ -382,6 +382,70 @@ Final manual acceptance evidence (2026-09-21):
 
 ---
 
+## Phase 4.5 — Production OCR runtime
+
+**Status: IN PROGRESS — implementation and initial real-runtime validation complete;
+private calibration expansion and manual acceptance remain.**
+
+### Goal
+
+Use `PP-OCRv6_small_rec` safely for real single-line WeChat bubbles without regressing
+multiline OCR or Phase 4 observation behavior.
+
+### Acceptance
+
+- [x] A configurable persistent worker loads and warms the model once and emits an
+  explicit version/device/timing `READY` handshake.
+- [x] Crop bytes remain in memory and every UTF-8 protocol response is correlated by
+  request ID.
+- [x] Paddle recognition is behind `IOcrEngine`; Paddle text detection is absent.
+- [x] Scale-aware line evidence routes single-line crops to Paddle and multiline or
+  ambiguous crops to Adaptive.
+- [x] Paddle `rec_score` remains engine-specific metadata and never becomes
+  `OcrConfidence` or a trust threshold.
+- [x] Paddle-only output and disagreement remain untrusted; explicit multi-engine
+  evidence owns semantic trust.
+- [x] Worker unavailable/startup/crash/timeout/malformed-response paths fall back to
+  Adaptive without terminating the observer.
+- [x] Runtime/observer counters and startup, warmup, inference, roundtrip, transport,
+  and total OCR timing are exposed.
+- [x] Unchanged observer frames issue no additional Paddle requests.
+- [ ] A visually inspected private 50–100 crop corpus, including the required
+  polarity/negation pairs, has zero trusted-wrong results.
+- [ ] The real observer workflow covers short Self/Remote `好`, another very short
+  Chinese message, a negation, English, mixed text, and a long wrapped message.
+- [ ] Phase 4 identity, deduplication, scrolling, and post-switch bootstrap behavior
+  are manually reconfirmed with production OCR enabled.
+
+Current automated and real-runtime evidence:
+
+- Final automated gates passed on Windows: solution format verification, a full build
+  with 0 warnings/errors, 103 .NET tests, and 9 Python worker/benchmark tests.
+- Windows-native Python 3.10 under `%LOCALAPPDATA%` loaded PaddleOCR 3.7.0,
+  PaddlePaddle GPU 3.2.2, and `PP-OCRv6_small_rec` on `gpu:0` (RTX 5080); WSL is not
+  an application runtime dependency.
+- A real observer run established one four-bubble bootstrap, routed two crops to
+  Paddle, then skipped OCR on all 33 unchanged frames. It reported 17.7 ms aggregate
+  Paddle inference, 62.2 ms aggregate roundtrip, no failure/fallback, and no new event.
+- The first 18-crop production run exposed and fixed a UTF-8 protocol decoding bug;
+  its pre-fix accuracy is invalid evidence.
+- The corrected two-engine policy produced one trusted-wrong shared glyph error
+  (`没事啦没事啦` -> `没事哒没事哒`). The policy was deliberately tightened without a
+  Paddle-score threshold.
+- The stronger-evidence run produced 12/18 raw and normalized exact, 4/18
+  semantic-ready, and 0 trusted-wrong. `好`, `嗯嗯`, and `怎么说` were correct Paddle
+  outputs but remained safely untrusted where independent evidence was absent. The
+  only represented polarity item (`好`) was correct; this is not yet the required full
+  polarity corpus.
+- The private report and crops remain under `.ocr-cache` and are not committed.
+- Five private expected-text batches containing 52 labels are prepared locally; the
+  corresponding real detected crops and visual crop/label review are still pending.
+
+Manual acceptance is intentionally blocked until the expanded private corpus and real
+observer message matrix are collected and reviewed. Phase 5 must not begin.
+
+---
+
 ## Phase 5 — Jev integration
 
 ### Goal

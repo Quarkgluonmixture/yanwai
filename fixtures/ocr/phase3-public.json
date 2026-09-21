@@ -38,6 +38,7 @@
     },
     {
       "name": "quoted_reply.quoted",
+      "role": "quoted_text",
       "image": "../../docs/assets/wechat-dark-layout-reference.png",
       "expected": "哈哈复哈哈兮:在坡她就说什么在磨合期了现在应该都磨平了",
       "x": 486,

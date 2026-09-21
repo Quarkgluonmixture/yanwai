@@ -1,12 +1,8 @@
 [CmdletBinding()]
 param(
-    [ValidateRange(50, 5000)]
-    [int]$IntervalMilliseconds = 200,
+    [string]$Manifest = '.ocr-cache\phase4.5-calibration\manifest.json',
 
-    [ValidateRange(1, 86400)]
-    [int]$Seconds,
-
-    [switch]$DebugText,
+    [string]$Output = '.ocr-cache\phase4.5-production-ocr.md',
 
     [ValidateSet('cpu', 'gpu:0')]
     [string]$PaddleDevice = 'gpu:0',
@@ -21,21 +17,12 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $localDotNet = Join-Path $env:LOCALAPPDATA 'WeChatJevHud\dotnet\dotnet.exe'
 $dotnet = if (Test-Path $localDotNet) { $localDotNet } else { (Get-Command dotnet -ErrorAction Stop).Source }
 $arguments = @(
-    'run',
-    '--project',
+    'run', '--project',
     (Join-Path $repositoryRoot 'src\WeChatJevHud.Diagnostics\WeChatJevHud.Diagnostics.csproj'),
-    '--',
-    '--observe',
-    '--interval-ms',
-    $IntervalMilliseconds
+    '--', '--production-ocr-evaluate', $Manifest,
+    '--ocr-output', $Output,
+    '--paddle-device', $PaddleDevice
 )
-if ($PSBoundParameters.ContainsKey('Seconds')) {
-    $arguments += @('--observe-seconds', $Seconds)
-}
-if ($DebugText) {
-    $arguments += '--debug-text'
-}
-$arguments += @('--paddle-device', $PaddleDevice)
 if ($PSBoundParameters.ContainsKey('PaddlePython')) {
     $arguments += @('--paddle-python', $PaddlePython)
 }
@@ -43,5 +30,11 @@ if ($PaddleWorkerDebug) {
     $arguments += '--paddle-worker-debug'
 }
 
-& $dotnet @arguments
-exit $LASTEXITCODE
+Push-Location $repositoryRoot
+try {
+    & $dotnet @arguments
+    exit $LASTEXITCODE
+}
+finally {
+    Pop-Location
+}

@@ -10,13 +10,56 @@ public interface IOcrEngine
     Task<OcrResult> RecognizeAsync(ImageCrop crop, CancellationToken cancellationToken);
 }
 
-public sealed record ImageCrop(CapturedFrame Frame, CapturePixelRect Bounds);
+public sealed record ImageCrop(
+    CapturedFrame Frame,
+    CapturePixelRect Bounds,
+    OcrCropRole Role = OcrCropRole.MainMessage);
+
+public enum OcrCropRole
+{
+    MainMessage,
+    QuotedText,
+}
 
 public sealed record OcrResult(
     string Text,
     double? OcrConfidence,
     OcrTextStatus Status,
-    string RawText);
+    string RawText,
+    OcrDiagnostics? Diagnostics = null)
+{
+    public bool IsTrustedForSemantics =>
+        Status == OcrTextStatus.Recognized && !string.IsNullOrWhiteSpace(Text);
+}
+
+public sealed record OcrDiagnostics(
+    OcrRoute Route,
+    OcrTrustBasis TrustBasis,
+    IReadOnlyList<OcrEngineEvidence> Evidence,
+    TimeSpan TotalElapsed);
+
+public sealed record OcrEngineEvidence(
+    string EngineName,
+    string RawText,
+    OcrTextStatus Status,
+    double? OcrConfidence,
+    double? EngineScore,
+    string? EngineScoreKind,
+    TimeSpan? InferenceElapsed,
+    TimeSpan? RoundtripElapsed);
+
+public enum OcrRoute
+{
+    Adaptive,
+    PaddleSingleLine,
+}
+
+public enum OcrTrustBasis
+{
+    None,
+    AdaptiveTrusted,
+    IndependentEngineAgreement,
+}
 
 public enum OcrTextStatus
 {

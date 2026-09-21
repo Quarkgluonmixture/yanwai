@@ -118,7 +118,8 @@ public sealed record ObservedMessage(
     string VisualFingerprint,
     bool IsVisible,
     string? QuotedText = null,
-    CapturePixelRect? QuotedRegion = null)
+    CapturePixelRect? QuotedRegion = null,
+    OcrDiagnostics? OcrDiagnostics = null)
 {
     public bool IsTrustedForSemantics =>
         OcrStatus == OcrTextStatus.Recognized &&

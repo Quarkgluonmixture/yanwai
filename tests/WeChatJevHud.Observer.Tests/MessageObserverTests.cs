@@ -38,6 +38,25 @@ public sealed class MessageObserverTests
     }
 
     [Fact]
+    public async Task Stable_frame_produces_zero_additional_paddle_requests()
+    {
+        var frame = Frame(headerValue: 10, bubbleValue: 80);
+        var detector = new StubBubbleDetector(
+            [new DetectedBubble(new CapturePixelRect(12, 60, 50, 24), MessageSide.Remote, 0.94)]);
+        var paddle = new StubOcrEngine(new OcrResult("好", null, OcrTextStatus.LowConfidence, "好"));
+        var adaptive = new StubOcrEngine(new OcrResult("好", 0.96, OcrTextStatus.Recognized, "好"));
+        var routed = new RoutedOcrEngine(new FixedRoutingPolicy(), paddle, adaptive);
+        var observer = CreateObserver(detector, routed);
+
+        await observer.ObserveAsync(frame, CancellationToken.None);
+        var paddleCallsAfterBaseline = paddle.Calls;
+        await observer.ObserveAsync(frame, CancellationToken.None);
+
+        Assert.Equal(1, paddleCallsAfterBaseline);
+        Assert.Equal(paddleCallsAfterBaseline, paddle.Calls);
+    }
+
+    [Fact]
     public async Task Appending_one_remote_message_emits_it_once_and_only_ocrs_the_new_crop()
     {
         var existing = new DetectedBubble(new CapturePixelRect(12, 54, 50, 24), MessageSide.Remote, 0.94);
@@ -1580,6 +1599,11 @@ public sealed class MessageObserverTests
             Calls++;
             return Task.FromResult(results[index]);
         }
+    }
+
+    private sealed class FixedRoutingPolicy : IOcrRoutingPolicy
+    {
+        public OcrRoute SelectRoute(ImageCrop crop) => OcrRoute.PaddleSingleLine;
     }
 
     private sealed record StubConversationIdentityEvidence(ulong Value) : IConversationIdentityEvidence;

@@ -22,4 +22,8 @@
           Link="Fixtures\wechat-dark-layout-reference.png"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="Fixtures\fake_paddle_worker.ps1"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

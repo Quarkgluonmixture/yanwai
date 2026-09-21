@@ -491,6 +491,31 @@ means literal equality with `RawText`; normalization cannot promote a raw mismat
 an exact match. Normalization is conservative and CJK-aware, preserving normal Latin
 punctuation spacing such as `123, I just got home.`.
 
+### Phase 4.5 production OCR runtime
+
+`PP-OCRv6_small_rec` is the production candidate for crops classified as single-line
+by scale-aware pixel/layout evidence. Paddle text detection is not used. Multiline,
+wrapped, quoted, and ambiguous layouts remain on Adaptive/Tesseract for V0.
+
+The Paddle adapter remains behind `IOcrEngine` and communicates with one persistent,
+configurable Windows-native Python worker. The worker loads and warms the model once,
+then exchanges UTF-8 JSON Lines over redirected standard input/output. Every request
+has an opaque ID and transfers PNG bytes in memory. Only protocol JSON may use stdout;
+worker/library logs use stderr. `READY` includes model name, PaddleOCR/PaddlePaddle
+versions, requested/active device, startup time, and warmup time.
+
+OCR results may carry `OcrDiagnostics` with route, trust basis, total time, and
+engine-specific evidence. For Paddle, `EngineScoreKind` is `paddle_rec_score`, while
+`OcrConfidence` is null. `rec_score` is not a correctness probability and cannot
+establish trust.
+
+Paddle-only output and disagreement remain `LowConfidence`. Existing trusted Adaptive
+output remains trusted. Otherwise, promotion requires normalized agreement between
+Paddle, the selected Adaptive output, and a separate confidence-bearing OCR candidate;
+agreement between Paddle and uncalibrated Windows OCR alone is insufficient. Any
+worker/protocol/device failure falls back to Adaptive. This is an explicit replaceable
+policy, not a model-score threshold.
+
 ---
 
 ## 11. Conversation state

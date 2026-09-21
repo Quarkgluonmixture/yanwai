@@ -35,10 +35,12 @@ public sealed class AdaptiveOcrEngine : IOcrEngine
     public async Task<OcrResult> RecognizeAsync(ImageCrop crop, CancellationToken cancellationToken)
     {
         OcrResult? best = null;
+        var evidence = new List<OcrEngineEvidence>(_scoredCandidates.Count + 1);
         foreach (var candidate in _scoredCandidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var result = await candidate.RecognizeAsync(crop, cancellationToken).ConfigureAwait(false);
+            evidence.Add(ToEvidence(candidate.Name, result));
             if (result.Status is OcrTextStatus.NoText or OcrTextStatus.Unsupported ||
                 result.OcrConfidence is not { } confidence ||
                 string.IsNullOrEmpty(result.Text))
@@ -54,12 +56,37 @@ public sealed class AdaptiveOcrEngine : IOcrEngine
 
         if (best?.OcrConfidence is { } bestConfidence && bestConfidence >= _confidenceThreshold)
         {
-            return best with { Status = OcrTextStatus.Recognized };
+            return WithEvidence(best with { Status = OcrTextStatus.Recognized }, evidence);
         }
 
         var fallback = await _fallback.RecognizeAsync(crop, cancellationToken).ConfigureAwait(false);
-        return fallback.Status == OcrTextStatus.Recognized
+        evidence.Add(ToEvidence(_fallback.Name, fallback));
+        var selected = fallback.Status == OcrTextStatus.Recognized
             ? fallback with { Status = OcrTextStatus.LowConfidence }
             : fallback;
+        return WithEvidence(selected, evidence);
     }
+
+    private static OcrResult WithEvidence(
+        OcrResult result,
+        IReadOnlyList<OcrEngineEvidence> evidence) =>
+        result with
+        {
+            Diagnostics = new OcrDiagnostics(
+                OcrRoute.Adaptive,
+                result.IsTrustedForSemantics ? OcrTrustBasis.AdaptiveTrusted : OcrTrustBasis.None,
+                evidence,
+                TimeSpan.Zero),
+        };
+
+    private static OcrEngineEvidence ToEvidence(string name, OcrResult result) =>
+        new(
+            name,
+            result.RawText,
+            result.Status,
+            result.OcrConfidence,
+            null,
+            null,
+            null,
+            null);
 }

@@ -1,7 +1,7 @@
 # WeChat × Jev Conversation HUD
 
-This checkout implements accepted Phases 0–4. It does not implement Phase 5 Jev
-calls or the HUD overlay.
+This checkout implements accepted Phases 0–4 and an in-progress Phase 4.5 production
+OCR runtime. It does not implement Phase 5 Jev calls or the HUD overlay.
 
 ## What is available
 
@@ -10,6 +10,10 @@ calls or the HUD overlay.
 - `WeChatJevHud.Vision`: capture-relative chat ROI location, `Remote`/`Self`/`Unknown` text-bubble detection, heuristic detection scores, timing, and annotated debug rendering.
 - Replaceable interfaces for window tracking, capture, bubble detection, OCR, Jev, and overlay rendering.
 - `WeChatJevHud.Ocr.Windows` and `WeChatJevHud.Ocr.Tesseract`: crop-only Simplified Chinese/English OCR adapters, explicit nullable `OcrConfidence`, low-confidence status, preprocessing variants, and an adaptive candidate policy.
+- `WeChatJevHud.Ocr`: explicit single-line/multiline routing, a persistent
+  recognition-only `PP-OCRv6_small_rec` worker client, engine-specific evidence, and
+  a conservative trust/fallback policy. Paddle `rec_score` never becomes
+  `OcrConfidence`.
 - `WeChatJevHud.Observer`: in-memory change detection, conversation epochs, ordered
   visible-message reconciliation, duplicate suppression, and Bootstrap/History/LiveNew
   observation state.
@@ -82,8 +86,8 @@ then install the experiment dependency and run the private manifest:
 
 ```bash
 python3 -m venv .ocr-cache/paddle-venv
-# Use the official selector to install paddlepaddle-gpu==3.3.0 for the local CUDA
-# runtime (or the matching paddlepaddle==3.3.0 CPU wheel) first.
+# Use the current official selector to install the backend matching the local CUDA
+# runtime (or the current CPU wheel) first; do not infer this from the OCR package.
 .ocr-cache/paddle-venv/bin/pip install paddleocr==3.7.0
 .ocr-cache/paddle-venv/bin/python scripts/paddle_ocr_benchmark.py \
   --manifest .ocr-cache/phase3-paddle-benchmark.json \
@@ -130,6 +134,49 @@ diagnostic:
 Use `-Seconds 30` for a bounded run or `-IntervalMilliseconds 200` to change the
 lightweight check interval. The observer never writes screenshots or chat logs.
 
+### Phase 4.5 production OCR runtime
+
+Install the Windows-native runtime once from Windows PowerShell. The default GPU
+install follows Paddle's current Windows CUDA 12.9 wheel guidance and stores the
+environment under `%LOCALAPPDATA%\WeChatJevHud\paddle-ocr`:
+
+The installer requires [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
+on the Windows `PATH`; follow its official install instructions first if `Get-Command
+uv` fails.
+
+```powershell
+.\scripts\install-paddle-runtime.ps1
+.\scripts\observe.ps1 -DebugText
+```
+
+The observer launches one persistent worker, waits for `READY`, reports exact
+model/library/device information, and keeps the model resident. Bubble PNG bytes use
+an ID-correlated UTF-8 JSON-lines protocol in memory; normal operation writes no
+message crops. `PP-OCRv6_small_rec` handles confidently classified single-line crops.
+Wrapped/multiline and ambiguous crops remain Adaptive. Worker/protocol/device failure
+falls back without terminating the observer.
+Worker/library stderr is suppressed by default. `-PaddleWorkerDebug` explicitly
+enables privacy-safe troubleshooting metadata (severity category and character count),
+never the raw third-party stderr line; output is capped to avoid log flooding.
+
+Private calibration data belongs under `.ocr-cache`. Put the expected visible
+messages in top-to-bottom order in a text file, show exactly those text bubbles in
+WeChat, then run:
+
+```powershell
+.\scripts\collect-ocr-calibration.ps1 `
+  -ExpectedFile .\.ocr-cache\expected-batch.txt `
+  -Side self
+
+.\scripts\evaluate-production-ocr.ps1
+```
+
+Collection aborts without saving when the expected-line and detected-bubble counts
+differ. Every crop/label pairing still requires visual inspection. The report keeps
+raw/normalized accuracy, Paddle `rec_score`, Adaptive output, trust, CER,
+startup/warmup and request timings, fallbacks, polarity errors, and trusted-wrong count
+separate. Crops and reports remain gitignored.
+
 From WSL, invoke the same Windows scripts through interop, for example:
 
 ```bash
@@ -138,7 +185,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w scripts/di
 
 ## Secrets and later phases
 
-No TypeSafe/Jev code runs through Phase 4. The official TypeSafe skill is installed at `.agents/skills/typesafe-ai/`. Before Phase 5 implementation, the live-docs gate in `docs/ACCEPTANCE.md` still applies.
+No TypeSafe/Jev code runs through Phase 4.5. The official TypeSafe skill is installed at `.agents/skills/typesafe-ai/`. Before Phase 5 implementation, the live-docs gate in `docs/ACCEPTANCE.md` still applies.
 
 When Jev is implemented later, keep the key outside the repository, for example in the current Windows user's environment:
 

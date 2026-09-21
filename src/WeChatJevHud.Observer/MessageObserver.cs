@@ -526,7 +526,8 @@ public sealed class MessageObserver : IMessageObserver
                 frame.CapturedAt,
                 origin,
                 candidate.VisualFingerprint,
-                IsVisible: true);
+                IsVisible: true,
+                OcrDiagnostics: ocr.Diagnostics);
             observed.Add(message);
             candidate.Message = message;
             InsertInTimeline(candidates, candidateIndex, message);
@@ -667,7 +668,12 @@ public sealed class MessageObserver : IMessageObserver
         comparison.IsMatch;
 
     private static OcrResult OcrFrom(ObservedMessage message) =>
-        new(message.NormalizedText, message.OcrConfidence, message.OcrStatus, message.RawText);
+        new(
+            message.NormalizedText,
+            message.OcrConfidence,
+            message.OcrStatus,
+            message.RawText,
+            message.OcrDiagnostics);
 
     private IReadOnlyList<ObservedMessage> PreviousVisibleMessages()
     {
