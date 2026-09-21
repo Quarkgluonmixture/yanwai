@@ -244,6 +244,42 @@ From WSL, invoke the same Windows scripts through interop, for example:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w scripts/diagnose.ps1)" -Capture
 ```
 
+### Experimental full-bubble Paddle benchmark
+
+The Phase 4.5 experiment in `scripts/paddle_bubble_benchmark.py` evaluates small text
+detection **inside existing bubble crops** followed by small recognition per line.
+It leaves the production worker/router/trust unchanged. Both models stay loaded for
+the run; document orientation, unwarping and line orientation modules are absent.
+Use the installed Windows Paddle Python (with the project as current directory):
+
+```powershell
+& "$env:LOCALAPPDATA\WeChatJevHud\paddle-ocr\.venv\Scripts\python.exe" `
+  scripts/paddle_bubble_benchmark.py `
+  --manifest .ocr-cache/phase4.5-calibration/manifest.json `
+    .ocr-cache/phase4.5-input-audit/dpi100/manifest.json `
+    .ocr-cache/phase4.5-input-audit/dpi150/manifest.json `
+    .ocr-cache/phase3-paddle-benchmark.json `
+  --output .ocr-cache/phase4.5-paddle-bubble
+python scripts/paddle_bubble_benchmark.py `
+  --manifest .ocr-cache/phase4.5-calibration/manifest.json `
+  --output .ocr-cache/phase4.5-paddle-bubble --snapshot-baseline
+.\scripts\evaluate-production-ocr.ps1 `
+  -Manifest .ocr-cache/phase4.5-paddle-bubble/manifest.json `
+  -Output .ocr-cache/phase4.5-paddle-bubble/routed.md
+python scripts/paddle_bubble_benchmark.py `
+  --manifest .ocr-cache/phase4.5-calibration/manifest.json `
+  --output .ocr-cache/phase4.5-paddle-bubble --compare-only
+```
+
+The combined manifest keeps main and quoted regions separate. Expected text never
+participates in line composition. Reports retain raw line strings, boxes, composed
+text, exactness/CER and separate detection/recognition/total timings. `rec_scores`
+remain diagnostic only. Current evidence is 78/84 exact vs routed 71/84, but three
+new single-line punctuation substitutions prevent claiming a regression-free replacement.
+
+API sources consulted 2026-09-21: [official TextDetection](https://www.paddleocr.ai/main/en/version3.x/module_usage/text_detection.html)
+and [TextRecognition](https://www.paddleocr.ai/main/en/version3.x/module_usage/text_recognition.html).
+
 ## Secrets and later phases
 
 No TypeSafe/Jev code runs through Phase 4.5. The official TypeSafe skill is installed at `.agents/skills/typesafe-ai/`. Before Phase 5 implementation, the live-docs gate in `docs/ACCEPTANCE.md` still applies.

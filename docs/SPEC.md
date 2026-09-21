@@ -537,6 +537,16 @@ band route to Paddle; other layouts and quoted regions remain Adaptive.
 Explicit routing diagnostics expose row counts, active states, background estimate,
 glyph scale, thresholds, band count and selected route without calling OCR.
 
+An isolated Phase 4.5 experiment may use `PP-OCRv6_small_det` inside these already
+isolated bubble or quote crops, followed by `PP-OCRv6_small_rec` on axis-aligned line
+boxes. This explicitly supersedes the earlier blanket prohibition on Paddle detection
+for the experiment only. Phase 2 message detection is unchanged. Both models remain
+resident across fixtures; document orientation, unwarping and text-line orientation
+are disabled by using only the detection and recognition modules. Report line boxes,
+raw line strings, composed text, literal/normalized evaluation and stage timings.
+No production router removal or trust-policy change follows automatically from this
+benchmark. See D-021 and the Phase 4.5 acceptance evidence.
+
 ---
 
 ## 11. Conversation state

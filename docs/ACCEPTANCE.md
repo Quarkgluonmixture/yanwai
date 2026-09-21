@@ -494,6 +494,32 @@ Routing audit and fix evidence:
 
 Manual acceptance remains blocked until paired multiline routing and the 144-DPI
 observer rerun are confirmed, followed separately by review of trust evidence.
+Paddle-only full-bubble experiment (production remains unchanged):
+
+- Evaluated the 52 calibration crops, both seven-crop DPI sets and 18 Phase 3
+  fixtures: 84 entries / 76 byte-distinct PNGs, including separately labeled quote
+  regions. Older samples without recorded DPI retain unknown DPI rather than guesses.
+- Windows GPU runtime: PaddleOCR 3.7.0 / PaddlePaddle 3.2.2; one small detector and
+  one small recognizer loaded and warmed once, no document/orientation modules.
+- Raw/normalized exact: Paddle-only 78/84 vs freshly rerun current routed 71/84.
+  Six two-line entries plus one three-line entry were exact; current routed was 0/7.
+  The 96-DPI and 144-DPI single-line sets each remained 7/7.
+- Calibration-only single-line exactness regressed from 46/47 to 44/47: three new
+  punctuation-width errors versus one repaired comma-space error. Overall calibration
+  accuracy improved 46/52 -> 49/52 through multiline recovery. Existing Remote glyph
+  errors persisted. No trust conclusions follow from these extraction scores.
+- Paddle module pipeline total p50/p95: 13.3/32.5 ms, including line sorting/cropping
+  and composition, excluding image decoding, artifact IO, IPC and startup. Current
+  routed end-to-end OCR p50/p95: 52.0/142.0 ms, including IPC and secondary OCR; these
+  are different timing boundaries. Cached startup/warmup: 2993.1/440.3 ms.
+- Private `phase4.5-paddle-bubble/` contains per-line crops, box SVGs, full JSON/Markdown
+  and same-fixture comparison with expected-label/crop-hash validation. Twenty-one
+  Python tests passed. Production .NET code was
+  not changed in this experiment; prior Windows tests are not a new production test.
+- Router removal is deferred: segmentation is promising but single-line regression,
+  Latin word-wrap ambiguity and limited paired-DPI multiline coverage need review.
+  Trust calibration remains separate; no rec_score threshold or Adaptive veto was added.
+
 The remaining real observer matrix and Phase 4 regression workflow stay paused. Phase
 4.5 is not PASS and Phase 5 must not begin.
 

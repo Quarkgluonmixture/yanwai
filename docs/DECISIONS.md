@@ -546,3 +546,28 @@ and scales row-band thresholds from estimated glyph height. This mask is used on
 for route selection and never replaces OCR pixels. Trust policy remains unchanged
 pending routing acceptance. Native-pixel HTML inspection replaces table-fit images
 for judging sharpness.
+
+---
+
+## D-021 — Evaluate Paddle detection only inside already-isolated bubbles
+
+The user explicitly superseded the earlier prohibition on Paddle text detection for
+an isolated Phase 4.5 benchmark. Phase 2 still owns message-bubble detection. The
+experiment uses `PP-OCRv6_small_det` only inside each bubble/independent quote crop,
+then `PP-OCRv6_small_rec` per line. Both models are loaded/warmed once in a native
+Windows process. Orientation, unwarping and line-orientation modules are not created.
+Axis-aligned line bounds are cropped without perspective correction. Per-line raw
+strings are retained; CJK wraps concatenate and Latin wraps receive a separating
+space. This composition is explicit and independent of expected labels.
+
+The 84-entry real-crop comparison (76 byte-distinct PNGs) improved raw/normalized
+exactness from routed 71/84 to 78/84. Seven multiline/quote entries were all exact,
+including a three-line English crop. Both DPI cohorts remained 7/7. However,
+calibration single-line exactness decreased from 46/47 to 44/47 due to three new
+full-width/ASCII punctuation substitutions (one old punctuation-space error improved).
+Two existing Remote glyph errors remain. These scores do not establish trust.
+
+Production routing, worker protocol and trust are unchanged by this experiment.
+The architecture is promising, but the router is not deleted pending review of the
+single-line regression and broader paired-DPI multiline evidence. No generic score
+threshold or Adaptive-agreement trust policy is introduced.
