@@ -1,5 +1,8 @@
+using System.Linq;
 using System.Windows;
 using System.Windows.Input;
+using WeChatJevHud.Core.Geometry;
+using WeChatJevHud.Overlay;
 using WeChatJevHud.TypeSafe;
 
 namespace WeChatJevHud.Panel;
@@ -17,6 +20,11 @@ public partial class MainWindow : Window
     private readonly string? _startupError;
     private CancellationTokenSource? _inFlight;
     private LiveConversationWatcher? _watcher;
+    private WpfOverlayPresenter? _overlay;
+    private CapturePixelRect _pendingAnchor;
+    private CapturePixelRect _pendingChatRegion;
+    private bool _hasPendingAnchor;
+    private OverlayDemo? _demo;
 
     public MainWindow()
     {
@@ -35,6 +43,12 @@ public partial class MainWindow : Window
         StatusText.Text = _startupError ?? "就绪。";
         ConversationBox.Focus();
         PreviewKeyDown += OnPreviewKeyDown;
+
+        if (Environment.GetCommandLineArgs().Contains("--overlay-demo", StringComparer.Ordinal))
+        {
+            _demo = new OverlayDemo();
+            StatusText.Text = _demo.Start();
+        }
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -86,6 +100,8 @@ public partial class MainWindow : Window
         _watcher.StatusChanged += OnWatcherStatus;
         _watcher.RemoteMessageArrived += OnRemoteMessageArrived;
         _watcher.RemoteMessageSkipped += OnRemoteMessageSkipped;
+        _watcher.WindowObserved += OnWindowObserved;
+        _overlay = new WpfOverlayPresenter();
         _watcher.Start();
 
         ConversationBox.IsReadOnly = true;
@@ -104,14 +120,22 @@ public partial class MainWindow : Window
             watcher.StatusChanged -= OnWatcherStatus;
             watcher.RemoteMessageArrived -= OnRemoteMessageArrived;
             watcher.RemoteMessageSkipped -= OnRemoteMessageSkipped;
+            watcher.WindowObserved -= OnWindowObserved;
             await watcher.StopAsync();
             watcher.Dispose();
         }
+
+        _overlay?.Dispose();
+        _overlay = null;
+        _hasPendingAnchor = false;
 
         ConversationBox.IsReadOnly = false;
         AnalyzeButton.IsEnabled = _client is not null;
         SampleButton.IsEnabled = true;
     }
+
+    private void OnWindowObserved(object? sender, LiveWindowEventArgs e) =>
+        Dispatcher.InvokeAsync(() => _overlay?.Follow(e.Snapshot));
 
     private void OnWatcherStatus(object? sender, LiveStatusEventArgs e) =>
         Dispatcher.InvokeAsync(() => StatusText.Text = e.Message);
@@ -123,8 +147,13 @@ public partial class MainWindow : Window
             // judgment to this one.
             _inFlight?.Cancel();
             CardList.ItemsSource = null;
+            HeadlineRow.Visibility = Visibility.Collapsed;
             TargetText.Text = e.Label;
             StatusText.Text = e.Reason;
+
+            // The HUD belonged to the previous message; this one is not it.
+            _hasPendingAnchor = false;
+            _overlay?.Hide();
         });
 
     private void OnRemoteMessageArrived(object? sender, LiveMessageEventArgs e) =>
@@ -132,6 +161,9 @@ public partial class MainWindow : Window
         {
             ConversationBox.Text = e.Transcript;
             ConversationBox.ScrollToEnd();
+            _pendingAnchor = e.Anchor;
+            _pendingChatRegion = e.ChatRegion;
+            _hasPendingAnchor = true;
             _ = AnalyzeAsync(e.SkippedUntrusted);
         });
 
@@ -245,15 +277,72 @@ public partial class MainWindow : Window
             as ChoiceQuestion;
         var top = reply.Probabilities[0];
 
+        var adviceLabel = replyQuestion?.LabelFor(top.Key) ?? top.Key;
+
         DangerText.Text = level;
-        AdviceText.Text = $"{replyQuestion?.LabelFor(top.Key) ?? top.Key}  {top.Probability * 100:N0}%";
+        AdviceText.Text = $"{adviceLabel}  {top.Probability * 100:N0}%";
         HeadlineRow.Visibility = Visibility.Visible;
+
+        ShowOverlay(questions, result, level, adviceLabel, top.Probability);
+    }
+
+    /// <summary>
+    /// Pushes the same verdict to the HUD beside the bubble. Only in live mode: a pasted
+    /// transcript has no bubble on screen to anchor to.
+    /// </summary>
+    private void ShowOverlay(
+        IReadOnlyList<JevQuestion> questions,
+        JevResult result,
+        string danger,
+        string advice,
+        double adviceProbability)
+    {
+        if (_overlay is null || !_hasPendingAnchor)
+        {
+            return;
+        }
+
+        var rows = new List<OverlayRow>(2);
+        foreach (var key in new[] { "subtext", "wants" })
+        {
+            if (!result.Answers.TryGetValue(key, out var answer))
+            {
+                continue;
+            }
+
+            switch (answer)
+            {
+                case NoulAnswer noul:
+                    var question = questions.FirstOrDefault(q => q.Key == key);
+                    rows.Add(new OverlayRow(question?.Label ?? key, noul.Probability));
+                    break;
+
+                case ChoiceAnswer { Probabilities.Count: > 0 } choice:
+                    var choiceQuestion = questions.FirstOrDefault(q => q.Key == key) as ChoiceQuestion;
+                    var best = choice.Probabilities[0];
+                    rows.Add(new OverlayRow(
+                        choiceQuestion?.LabelFor(best.Key) ?? best.Key,
+                        best.Probability));
+                    break;
+            }
+        }
+
+        _overlay.Show(
+            new OverlayContent(
+                TargetText.Text,
+                danger,
+                $"{advice}  {adviceProbability * 100:N0}%",
+                rows),
+            _pendingAnchor,
+            _pendingChatRegion);
     }
 
     protected override void OnClosed(EventArgs e)
     {
         _inFlight?.Cancel();
         _watcher?.Dispose();
+        _overlay?.Dispose();
+        _demo?.Dispose();
         base.OnClosed(e);
     }
 }

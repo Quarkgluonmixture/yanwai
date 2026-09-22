@@ -1,6 +1,8 @@
 using System.IO;
 using WeChatJevHud.Capture;
+using WeChatJevHud.Core.Geometry;
 using WeChatJevHud.Core.Messages;
+using WeChatJevHud.Core.Windows;
 using WeChatJevHud.Observer;
 using WeChatJevHud.Ocr;
 using WeChatJevHud.TypeSafe;
@@ -11,12 +13,25 @@ namespace WeChatJevHud.Panel;
 
 public sealed class LiveMessageEventArgs : EventArgs
 {
-    public LiveMessageEventArgs(string transcript, string targetMessage, int skippedUntrusted)
+    public LiveMessageEventArgs(
+        string transcript,
+        string targetMessage,
+        int skippedUntrusted,
+        CapturePixelRect anchor,
+        CapturePixelRect chatRegion)
     {
         Transcript = transcript;
         TargetMessage = targetMessage;
         SkippedUntrusted = skippedUntrusted;
+        Anchor = anchor;
+        ChatRegion = chatRegion;
     }
+
+    /// <summary>The bubble this judgment is about, in capture-frame pixels.</summary>
+    public CapturePixelRect Anchor { get; }
+
+    /// <summary>The chat area the bubble must stay inside to keep the HUD attached.</summary>
+    public CapturePixelRect ChatRegion { get; }
 
     /// <summary>The recent conversation as "对方:" / "我:" lines, ending at the new message.</summary>
     public string Transcript { get; }
@@ -25,6 +40,13 @@ public sealed class LiveMessageEventArgs : EventArgs
 
     /// <summary>How many recent messages were left out because OCR did not trust them.</summary>
     public int SkippedUntrusted { get; }
+}
+
+public sealed class LiveWindowEventArgs : EventArgs
+{
+    public LiveWindowEventArgs(WeChatWindowSnapshot? snapshot) => Snapshot = snapshot;
+
+    public WeChatWindowSnapshot? Snapshot { get; }
 }
 
 public sealed class LiveSkippedEventArgs : EventArgs
@@ -66,6 +88,9 @@ public sealed class LiveConversationWatcher : IDisposable
     private readonly Win32WeChatWindowTracker _tracker = new();
     private readonly Win32ScreenRegionCapture _capture = new();
 
+    private readonly IChatRegionLocator _chatRegionLocator = new DarkThemeChatRegionLocator();
+    private volatile object? _lastChatRegionBox;
+
     private CancellationTokenSource? _cancellation;
     private Task? _loop;
     private bool _wasUnavailable;
@@ -106,6 +131,12 @@ public sealed class LiveConversationWatcher : IDisposable
     public event EventHandler<LiveSkippedEventArgs>? RemoteMessageSkipped;
 
     public event EventHandler<LiveStatusEventArgs>? StatusChanged;
+
+    /// <summary>
+    /// Raised once per polling tick with the current window state, or null when WeChat
+    /// cannot be found. Drives the overlay's follow behaviour.
+    /// </summary>
+    public event EventHandler<LiveWindowEventArgs>? WindowObserved;
 
     public bool IsRunning => _loop is { IsCompleted: false };
 
@@ -177,6 +208,7 @@ public sealed class LiveConversationWatcher : IDisposable
             try
             {
                 var window = _tracker.Locate();
+                WindowObserved?.Invoke(this, new LiveWindowEventArgs(window));
                 if (window is null || !window.IsVisible || window.IsMinimized)
                 {
                     if (!_wasUnavailable)
@@ -194,6 +226,12 @@ public sealed class LiveConversationWatcher : IDisposable
                     }
 
                     var frame = _capture.Capture(window);
+
+                    // The observer locates the chat region internally but does not
+                    // report it, and the overlay needs it to know when a bubble has
+                    // scrolled out. Locating again costs a few milliseconds.
+                    _lastChatRegionBox = _chatRegionLocator.Locate(frame).Bounds;
+
                     await _observer.ObserveAsync(frame, cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -263,9 +301,18 @@ public sealed class LiveConversationWatcher : IDisposable
             return;
         }
 
+        var chatRegion = _lastChatRegionBox is CapturePixelRect region
+            ? region
+            : message.BubbleRect;
+
         RemoteMessageArrived?.Invoke(
             this,
-            new LiveMessageEventArgs(built.Transcript, message.NormalizedText, built.SkippedUntrusted));
+            new LiveMessageEventArgs(
+                built.Transcript,
+                message.NormalizedText,
+                built.SkippedUntrusted,
+                message.BubbleRect,
+                chatRegion));
     }
 
     /// <summary>
