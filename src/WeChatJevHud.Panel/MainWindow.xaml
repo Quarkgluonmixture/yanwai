@@ -101,6 +101,22 @@
           <TextBlock Text="正在判断的消息" FontSize="11" Foreground="{StaticResource MutedText}" />
           <TextBlock x:Name="TargetText" Margin="0,4,0,0" FontSize="14" TextWrapping="Wrap"
                      Foreground="{StaticResource PrimaryText}" Text="—" />
+          <Grid x:Name="HeadlineRow" Margin="0,10,0,0" Visibility="Collapsed">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+              <TextBlock Text="危险等级" FontSize="11" Foreground="{StaticResource MutedText}" />
+              <TextBlock x:Name="DangerText" Margin="0,2,0,0" FontSize="14" FontWeight="SemiBold"
+                         TextWrapping="Wrap" Foreground="{StaticResource PrimaryText}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="建议" FontSize="11" Foreground="{StaticResource MutedText}" />
+              <TextBlock x:Name="AdviceText" Margin="0,2,0,0" FontSize="14" FontWeight="SemiBold"
+                         TextWrapping="Wrap" Foreground="{StaticResource BarFillTop}" />
+            </StackPanel>
+          </Grid>
         </StackPanel>
       </Border>
 

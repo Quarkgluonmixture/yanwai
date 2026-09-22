@@ -155,12 +155,13 @@ public partial class MainWindow : Window
 
         TargetText.Text = input.TargetMessage;
         CardList.ItemsSource = null;
+        HeadlineRow.Visibility = Visibility.Collapsed;
         AnalyzeButton.IsEnabled = false;
         StatusText.Text = "问 Jev 中...";
 
         try
         {
-            var questions = ConversationQuestionSet.Default;
+            var questions = ConversationQuestionSet.For(input.TargetMessage);
             var result = await _client.AskAsync(input.State, questions, cancellation.Token);
 
             var cards = new List<JudgmentCard>();
@@ -178,6 +179,7 @@ public partial class MainWindow : Window
             }
 
             CardList.ItemsSource = cards;
+            ShowHeadline(questions, result);
 
             var status =
                 $"{result.Model} · {result.Latency.TotalMilliseconds:N0} ms · " +
@@ -217,6 +219,35 @@ public partial class MainWindow : Window
             // back a control that edits a box the watcher owns.
             AnalyzeButton.IsEnabled = _watcher is null && _client is not null;
         }
+    }
+
+    /// <summary>
+    /// Lifts the two answers worth reading first out of the card list. Shows nothing at
+    /// all if either is missing, rather than a half-filled headline.
+    /// </summary>
+    private void ShowHeadline(IReadOnlyList<JevQuestion> questions, JevResult result)
+    {
+        if (!result.Answers.TryGetValue(ConversationQuestionSet.DangerKey, out var dangerAnswer)
+            || dangerAnswer is not ScoreAnswer danger
+            || danger.NearestLevel is not { } level)
+        {
+            return;
+        }
+
+        if (!result.Answers.TryGetValue(ConversationQuestionSet.ReplyKey, out var replyAnswer)
+            || replyAnswer is not ChoiceAnswer reply
+            || reply.Probabilities.Count == 0)
+        {
+            return;
+        }
+
+        var replyQuestion = questions.FirstOrDefault(q => q.Key == ConversationQuestionSet.ReplyKey)
+            as ChoiceQuestion;
+        var top = reply.Probabilities[0];
+
+        DangerText.Text = level;
+        AdviceText.Text = $"{replyQuestion?.LabelFor(top.Key) ?? top.Key}  {top.Probability * 100:N0}%";
+        HeadlineRow.Visibility = Visibility.Visible;
     }
 
     protected override void OnClosed(EventArgs e)
