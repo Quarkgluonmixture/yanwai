@@ -6,40 +6,80 @@ namespace Yanwai.Overlay.Tests;
 
 public sealed class OverlayLayoutTests
 {
-    private static readonly CapturePixelRect Chat = new(300, 60, 900, 900);
-    private static readonly DesktopPixelRect Frame = new(100, 50, 1300, 1000);
+    // Frame origin at (0,0) so capture and desktop coordinates coincide.
+    private static readonly CapturePixelRect Chat = new(300, 0, 900, 1000);
+    private static readonly DesktopPixelRect Frame = new(0, 0, 1300, 1100);
     private static readonly DesktopPixelRect WorkArea = new(0, 0, 2560, 1400);
-    private static readonly (int, int) Card = (390, 252);
-    private static readonly (int, int) Chip = (345, 39);
+    private static readonly (int, int) Chip = (300, 40);
 
     private static IReadOnlyList<HudSlot> Arrange(
         string? selected,
         Dictionary<string, CapturePixelRect> visible,
         params string[] judged) =>
-        OverlayLayout.Arrange(judged, selected, visible, Chat, Frame, WorkArea, Card, Chip, gap: 18);
+        OverlayLayout.Arrange(
+            judged.Select(id => new HudRequest(id, 360, 200)).ToList(),
+            selected, visible, Chat, Frame, WorkArea, Chip, gap: 12);
 
     [Fact]
-    public void Selected_gets_the_card_and_the_others_get_chips()
+    public void A_card_goes_under_its_bubble_when_the_gap_is_free()
     {
-        var slots = Arrange(
-            "b",
-            new() { ["a"] = new(320, 100, 300, 60), ["b"] = new(320, 600, 300, 60) },
-            "a", "b");
+        var slot = Assert.Single(Arrange(null, new() { ["a"] = new(320, 100, 300, 60) }, "a"));
 
-        Assert.Equal(HudKind.Card, Assert.Single(slots, s => s.Id == "b").Kind);
-        Assert.Equal(HudKind.Chip, Assert.Single(slots, s => s.Id == "a").Kind);
+        Assert.Equal(HudKind.Card, slot.Kind);
+        Assert.Equal(320, slot.Bounds.X);
+        Assert.True(slot.Bounds.Y >= 160);
     }
 
     [Fact]
-    public void A_chip_that_would_sit_under_the_card_is_left_out()
+    public void A_card_moves_beside_its_bubble_rather_than_cover_the_next_message()
     {
-        // b's card starts at b's top and runs 252 px down, over c's chip.
         var slots = Arrange(
-            "b",
-            new() { ["b"] = new(320, 400, 300, 60), ["c"] = new(320, 480, 300, 60) },
-            "b", "c");
+            null,
+            new() { ["a"] = new(320, 100, 300, 60), ["next"] = new(320, 200, 200, 60) },
+            "a");
 
-        Assert.Equal("b", Assert.Single(slots).Id);
+        var slot = Assert.Single(slots);
+        Assert.Equal(HudKind.Card, slot.Kind);
+        Assert.True(slot.Bounds.X >= 620, "beside the bubble, not under it");
+        Assert.False(OverlayLayout.Intersects(slot.Bounds, new DesktopPixelRect(320, 200, 200, 60)));
+    }
+
+    [Fact]
+    public void With_no_room_for_a_card_it_falls_back_to_a_chip_and_never_covers_a_bubble()
+    {
+        // A wide self message just under "a" blocks both the gap below and the space beside it.
+        var visible = new Dictionary<string, CapturePixelRect>
+        {
+            ["a"] = new(320, 100, 300, 60),
+            ["wide"] = new(400, 180, 780, 60),
+        };
+
+        var slot = Assert.Single(Arrange(null, visible, "a"));
+
+        Assert.Equal(HudKind.Chip, slot.Kind);
+        Assert.All(visible.Values, bubble =>
+            Assert.False(OverlayLayout.Intersects(slot.Bounds, new DesktopPixelRect(bubble.X, bubble.Y, bubble.Width, bubble.Height)), $"covers {bubble}"));
+    }
+
+    [Fact]
+    public void Cards_never_overlap_each_other_and_the_selected_one_wins_the_space()
+    {
+        var visible = new Dictionary<string, CapturePixelRect>
+        {
+            ["old"] = new(320, 100, 300, 60),
+            ["new"] = new(320, 400, 300, 60),
+        };
+
+        var slots = Arrange("old", visible, "old", "new");
+
+        Assert.Equal(HudKind.Card, Assert.Single(slots, s => s.Id == "old").Kind);
+        for (var i = 0; i < slots.Count; i++)
+        {
+            for (var j = i + 1; j < slots.Count; j++)
+            {
+                Assert.False(OverlayLayout.Intersects(slots[i].Bounds, slots[j].Bounds));
+            }
+        }
     }
 
     [Fact]
@@ -47,12 +87,9 @@ public sealed class OverlayLayoutTests
     {
         var slots = Arrange(
             "gone",
-            new() { ["a"] = new(320, 100, 300, 60), ["half"] = new(320, 940, 300, 60) },
+            new() { ["a"] = new(320, 100, 300, 60), ["half"] = new(320, 960, 300, 100) },
             "gone", "a", "half");
 
-        // "gone" scrolled away, "half" is mostly below the chat area: only "a" remains,
-        // and with the selection off screen it stays a chip rather than becoming a card.
-        var slot = Assert.Single(slots);
-        Assert.Equal(("a", HudKind.Chip), (slot.Id, slot.Kind));
+        Assert.Equal("a", Assert.Single(slots).Id);
     }
 }

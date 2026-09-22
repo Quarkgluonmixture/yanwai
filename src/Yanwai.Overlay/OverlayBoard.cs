@@ -5,8 +5,8 @@ using Yanwai.Core.Windows;
 namespace Yanwai.Overlay;
 
 /// <summary>
-/// All HUDs for the conversation on screen: one full card for the selected message and
-/// a chip for every other judged message. Must be used on the UI thread.
+/// All HUDs for the conversation on screen: a card for every judged message that has
+/// room for one, a one-line chip for those that do not. Must be used on the UI thread.
 ///
 /// Positions are never cached in desktop space. Every input (window state, bubble
 /// positions, selection, content) re-runs <see cref="OverlayLayout.Arrange"/>, so a
@@ -14,44 +14,35 @@ namespace Yanwai.Overlay;
 /// </summary>
 public sealed class OverlayBoard : IDisposable
 {
-    /// <summary>Sizes in DIPs. The card is a glance, the chip is a word.</summary>
-    private const double CardWidthDips = 260;
-    private const double CardHeightDips = 168;
+    /// <summary>Widths in DIPs; a card's height comes from its content.</summary>
+    private const double CardWidthDips = 240;
     private const double ChipWidthDips = 230;
     private const double ChipHeightDips = 26;
 
     /// <summary>Oldest judgments are dropped past this; they are long scrolled away.</summary>
     private const int MaxEntries = 60;
 
-    private readonly HudOverlayWindow _card = new();
-    private readonly Dictionary<string, (OverlayContent Card, OverlayChip Chip)> _content = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private readonly List<string> _order = [];
-    private readonly Dictionary<string, HudChipWindow> _chips = new(StringComparer.Ordinal);
 
     private IReadOnlyDictionary<string, CapturePixelRect> _visible = new Dictionary<string, CapturePixelRect>();
     private CapturePixelRect _chatRegion;
     private bool _captureIsClean;
     private WeChatWindowSnapshot? _snapshot;
     private string? _selectedId;
-    private string? _cardShowsId;
 
     public void Set(string id, OverlayContent card, OverlayChip chip)
     {
-        if (!_content.ContainsKey(id))
+        if (!_entries.TryGetValue(id, out var entry))
         {
+            entry = new Entry();
+            _entries[id] = entry;
             _order.Add(id);
         }
 
-        _content[id] = (card, chip);
-        if (string.Equals(_cardShowsId, id, StringComparison.Ordinal))
-        {
-            _cardShowsId = null;
-        }
-
-        if (_chips.TryGetValue(id, out var window))
-        {
-            window.SetContent(chip);
-        }
+        entry.CardHeightDips = entry.Card.SetContent(card, CardWidthDips);
+        entry.ChipContent = chip;
+        entry.Chip?.SetContent(chip);
 
         while (_order.Count > MaxEntries)
         {
@@ -61,6 +52,7 @@ public sealed class OverlayBoard : IDisposable
         Render();
     }
 
+    /// <summary>The selected message is placed first, so it gets its card whenever any fits.</summary>
     public void Select(string? id)
     {
         _selectedId = id;
@@ -96,16 +88,14 @@ public sealed class OverlayBoard : IDisposable
         }
 
         _selectedId = null;
-        Render();
     }
 
     private void Remove(string id)
     {
         _order.Remove(id);
-        _content.Remove(id);
-        if (_chips.Remove(id, out var window))
+        if (_entries.Remove(id, out var entry))
         {
-            window.Close();
+            entry.Close();
         }
     }
 
@@ -113,69 +103,72 @@ public sealed class OverlayBoard : IDisposable
     {
         var snapshot = _snapshot;
         if (snapshot is null || !snapshot.IsVisible || snapshot.IsMinimized || !snapshot.IsForeground
-            || !_captureIsClean || _content.Count == 0)
+            || !_captureIsClean || _entries.Count == 0)
         {
             HideAll();
             return;
         }
 
         var transform = snapshot.CoordinateTransform;
-        var card = transform.MonitorDipsToDesktopPixels(new MonitorDipRect(0, 0, CardWidthDips, CardHeightDips));
         var chip = transform.MonitorDipsToDesktopPixels(new MonitorDipRect(0, 0, ChipWidthDips, ChipHeightDips));
         var gap = Math.Max(1, (int)Math.Round(OverlayPlacement.GapAtUnitScale * snapshot.Dpi.ScaleX));
 
-        var selected = _selectedId is not null && _content.ContainsKey(_selectedId) ? _selectedId : null;
+        var requests = _order
+            .Select(id =>
+            {
+                var size = transform.MonitorDipsToDesktopPixels(
+                    new MonitorDipRect(0, 0, CardWidthDips, _entries[id].CardHeightDips));
+                return new HudRequest(id, size.Width, size.Height);
+            })
+            .ToList();
+
         var slots = OverlayLayout.Arrange(
-            _order,
-            selected,
+            requests,
+            _selectedId,
             _visible,
             _chatRegion,
             snapshot.CaptureBounds,
             snapshot.Monitor.WorkArea,
-            (card.Width, card.Height),
             (chip.Width, chip.Height),
             gap);
 
-        var cardShown = false;
-        var chipsShown = new HashSet<string>(StringComparer.Ordinal);
+        var shown = new Dictionary<string, HudKind>(StringComparer.Ordinal);
         foreach (var slot in slots)
         {
+            var entry = _entries[slot.Id];
             if (slot.Kind == HudKind.Card)
             {
-                if (!string.Equals(_cardShowsId, slot.Id, StringComparison.Ordinal))
-                {
-                    _card.SetContent(_content[slot.Id].Card);
-                    _cardShowsId = slot.Id;
-                }
-
-                ShowAt(_card, slot.Bounds, _card.SetPhysicalBounds);
-                cardShown = true;
-                continue;
+                ShowAt(entry.Card, slot.Bounds, entry.Card.SetPhysicalBounds);
             }
-
-            if (!_chips.TryGetValue(slot.Id, out var window))
+            else
             {
-                window = new HudChipWindow();
-                window.SetContent(_content[slot.Id].Chip);
-                _chips[slot.Id] = window;
+                var window = entry.Chip ??= CreateChip(entry.ChipContent!);
+                ShowAt(window, slot.Bounds, window.SetPhysicalBounds);
             }
 
-            ShowAt(window, slot.Bounds, window.SetPhysicalBounds);
-            chipsShown.Add(slot.Id);
+            shown[slot.Id] = slot.Kind;
         }
 
-        if (!cardShown && _card.IsVisible)
+        foreach (var (id, entry) in _entries)
         {
-            _card.Hide();
-        }
-
-        foreach (var (id, window) in _chips)
-        {
-            if (!chipsShown.Contains(id) && window.IsVisible)
+            var kind = shown.TryGetValue(id, out var k) ? k : (HudKind?)null;
+            if (kind != HudKind.Card && entry.Card.IsVisible)
             {
-                window.Hide();
+                entry.Card.Hide();
+            }
+
+            if (kind != HudKind.Chip && entry.Chip is { IsVisible: true } chipWindow)
+            {
+                chipWindow.Hide();
             }
         }
+    }
+
+    private static HudChipWindow CreateChip(OverlayChip content)
+    {
+        var window = new HudChipWindow();
+        window.SetContent(content);
+        return window;
     }
 
     private static void ShowAt(Window window, DesktopPixelRect bounds, Action<int, int, int, int> setBounds)
@@ -192,28 +185,45 @@ public sealed class OverlayBoard : IDisposable
 
     private void HideAll()
     {
-        if (_card.IsVisible)
+        foreach (var entry in _entries.Values)
         {
-            _card.Hide();
-        }
-
-        foreach (var window in _chips.Values)
-        {
-            if (window.IsVisible)
+            if (entry.Card.IsVisible)
             {
-                window.Hide();
+                entry.Card.Hide();
+            }
+
+            if (entry.Chip is { IsVisible: true } chip)
+            {
+                chip.Hide();
             }
         }
     }
 
     public void Dispose()
     {
-        _card.Close();
-        foreach (var window in _chips.Values)
+        foreach (var entry in _entries.Values)
         {
-            window.Close();
+            entry.Close();
         }
 
-        _chips.Clear();
+        _entries.Clear();
+        _order.Clear();
+    }
+
+    private sealed class Entry
+    {
+        public HudOverlayWindow Card { get; } = new();
+
+        public double CardHeightDips { get; set; }
+
+        public HudChipWindow? Chip { get; set; }
+
+        public OverlayChip? ChipContent { get; set; }
+
+        public void Close()
+        {
+            Card.Close();
+            Chip?.Close();
+        }
     }
 }

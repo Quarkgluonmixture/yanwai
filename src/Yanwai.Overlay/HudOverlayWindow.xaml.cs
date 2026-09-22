@@ -10,12 +10,16 @@ public partial class HudOverlayWindow : Window
         SourceInitialized += (_, _) => OverlayNative.MakeClickThrough(this);
     }
 
-    public void SetContent(OverlayContent content)
+    /// <summary>
+    /// Sets the content and returns the height it needs at <paramref name="widthDips"/>,
+    /// in DIPs. The layout has to know a card's height before placing it: a tall card
+    /// that fits beside one bubble may cover the next.
+    /// </summary>
+    public double SetContent(OverlayContent content, double widthDips)
     {
-        MessageText.Text = content.Message;
-        HeadlineText.Text = content.Headline;
-        AdviceText.Text = content.Advice;
-        RowList.ItemsSource = content.Rows;
+        SectionList.ItemsSource = content.Sections;
+        Root.Measure(new Size(widthDips, double.PositiveInfinity));
+        return Math.Ceiling(Root.DesiredSize.Height);
     }
 
     public void SetPhysicalBounds(int x, int y, int width, int height) =>

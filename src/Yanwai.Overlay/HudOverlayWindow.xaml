@@ -13,33 +13,25 @@
         FontFamily="Microsoft YaHei UI, Segoe UI"
         TextOptions.TextFormattingMode="Ideal">
 
-  <Border Background="#F2232326" CornerRadius="10" Padding="14,12,14,12"
-          BorderBrush="#33FFFFFF" BorderThickness="1">
+  <!-- A grey note in WeChat's dark palette: close to the bubbles, clearly not one of them. -->
+  <Border x:Name="Root" Background="#F2333335" CornerRadius="4" Padding="12,8,12,9"
+          VerticalAlignment="Top">
     <StackPanel>
-      <TextBlock Text="Jev" FontSize="10" Foreground="#8C8C94" Margin="0,0,0,6" />
-
-      <TextBlock x:Name="MessageText" FontSize="13" FontWeight="SemiBold" Foreground="#F2F2F4"
-                 TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="40" />
-
-      <TextBlock x:Name="HeadlineText" FontSize="12" Foreground="#E8B84B" Margin="0,8,0,0"
-                 TextWrapping="Wrap" />
-
-      <TextBlock x:Name="AdviceText" FontSize="13" FontWeight="SemiBold" Foreground="#5FBF8F"
-                 Margin="0,4,0,0" TextWrapping="Wrap" />
-
-      <ItemsControl x:Name="RowList" Margin="0,8,0,0">
+      <TextBlock Text="Jev：" FontSize="12" Foreground="#9A9AA0" />
+      <ItemsControl x:Name="SectionList">
         <ItemsControl.ItemTemplate>
-          <DataTemplate DataType="{x:Type local:OverlayRow}">
-            <Grid Margin="0,2,0,0">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-              </Grid.ColumnDefinitions>
-              <TextBlock Grid.Column="0" Text="{Binding Label}" FontSize="12" Foreground="#C6C6CC"
-                         TextTrimming="CharacterEllipsis" />
-              <TextBlock Grid.Column="1" Text="{Binding ProbabilityText}" FontSize="12"
-                         Foreground="#8C8C94" Margin="10,0,0,0" />
-            </Grid>
+          <DataTemplate DataType="{x:Type local:OverlaySection}">
+            <StackPanel Margin="0,4,0,0">
+              <TextBlock Text="{Binding Heading}" FontSize="12" Foreground="#D6D6DA" TextWrapping="Wrap" />
+              <ItemsControl ItemsSource="{Binding Rows}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="{x:Type local:OverlayRow}">
+                    <TextBlock Text="{Binding Line}" FontSize="12" Foreground="#B4B4BA"
+                               Margin="2,1,0,0" TextTrimming="CharacterEllipsis" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
           </DataTemplate>
         </ItemsControl.ItemTemplate>
       </ItemsControl>

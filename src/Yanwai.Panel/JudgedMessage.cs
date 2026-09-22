@@ -110,31 +110,53 @@ public sealed class JudgedMessage
     public OverlayChip Chip() =>
         new(HasHeadline ? AdviceText : "判定不完整", DangerLevel);
 
+    /// <summary>Choices show this many options; the rest are in the panel.</summary>
+    private const int CardOptions = 3;
+
+    private static readonly HashSet<string> CardKeys =
+        ["subtext", ConversationQuestionSet.ReplyKey, ConversationQuestionSet.DangerKey];
+
+    /// <summary>
+    /// The card under the bubble: the yes/no read on subtext, what to do next, and the
+    /// danger level — three sections, so it stays short enough to fit between messages.
+    /// Mood and wants are in the panel. Questions that came back unanswered are left
+    /// out, not filled in.
+    /// </summary>
     public OverlayContent OverlayCard()
     {
-        var rows = new List<OverlayRow>(2);
-        foreach (var key in new[] { "subtext", "wants" })
+        var sections = new List<OverlaySection>();
+        foreach (var question in Questions)
         {
-            if (!Result.Answers.TryGetValue(key, out var answer))
+            if (!CardKeys.Contains(question.Key) || !Result.Answers.TryGetValue(question.Key, out var answer))
             {
                 continue;
             }
 
-            switch (answer)
+            switch (question, answer)
             {
-                case NoulAnswer noul:
-                    var question = Questions.FirstOrDefault(q => q.Key == key);
-                    rows.Add(new OverlayRow(question?.Label ?? key, noul.Probability));
+                case (NoulQuestion, NoulAnswer noul):
+                    sections.Add(new OverlaySection(
+                        question.Label,
+                        [new OverlayRow("是", noul.Probability), new OverlayRow("不是", 1 - noul.Probability)]));
                     break;
 
-                case ChoiceAnswer { Probabilities.Count: > 0 } choice:
-                    var choiceQuestion = Questions.FirstOrDefault(q => q.Key == key) as ChoiceQuestion;
-                    var best = choice.Probabilities[0];
-                    rows.Add(new OverlayRow(choiceQuestion?.LabelFor(best.Key) ?? best.Key, best.Probability));
+                case (ChoiceQuestion choiceQuestion, ChoiceAnswer { Probabilities.Count: > 0 } choice):
+                    sections.Add(new OverlaySection(
+                        choiceQuestion.Label,
+                        choice.Probabilities
+                            .Take(CardOptions)
+                            .Select(option => new OverlayRow(choiceQuestion.LabelFor(option.Key), option.Probability))
+                            .ToList()));
+                    break;
+
+                case (ScoreQuestion, ScoreAnswer score) when score.Legend.Count > 0:
+                    sections.Add(new OverlaySection(
+                        $"{question.Label}：{score.Score:0.0} / {score.Legend.Count - 1}（{score.NearestLevel}）",
+                        []));
                     break;
             }
         }
 
-        return new OverlayContent(Text, Danger ?? "—", AdviceText, rows);
+        return new OverlayContent(sections);
     }
 }

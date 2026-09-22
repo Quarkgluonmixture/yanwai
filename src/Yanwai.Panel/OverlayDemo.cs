@@ -65,14 +65,15 @@ public sealed class OverlayDemo : IDisposable
         _overlay.Set(
             DemoId,
             new OverlayContent(
-                "（演示锚点，未调用 Jev）",
-                "要认真回，已经有情绪了",
-                "直接回答  67%",
-                new[]
-                {
-                    new OverlayRow("话里有话", 0.87),
-                    new OverlayRow("要一个具体答案", 0.56),
-                }),
+                [
+                    new OverlaySection(
+                        "「你最好是」是话里有话吗？",
+                        [new OverlayRow("是", 0.87), new OverlayRow("不是", 0.13)]),
+                    new OverlaySection(
+                        "现在该怎么回",
+                        [new OverlayRow("给个具体安排", 0.61), new OverlayRow("先接住情绪", 0.22), new OverlayRow("别再解释了", 0.09)]),
+                    new OverlaySection("危险等级：2.3 / 3（要认真回，已经有情绪了）", []),
+                ]),
             new OverlayChip("直接回答  67%", 2));
         _overlay.Select(DemoId);
         _overlay.UpdateAnchors(
