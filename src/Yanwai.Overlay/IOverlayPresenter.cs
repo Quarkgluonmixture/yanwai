@@ -23,6 +23,14 @@ public interface IOverlayPresenter
     /// </summary>
     void Follow(WeChatWindowSnapshot? snapshot);
 
+    /// <summary>
+    /// Moves the HUD to where its bubble is now, after a scroll or re-layout. A null
+    /// anchor means the bubble is not on screen (scrolled away, conversation switched,
+    /// or the frame could not be trusted): the HUD hides but keeps its content, so it
+    /// comes back if the bubble does.
+    /// </summary>
+    void Reanchor(CapturePixelRect? anchor, CapturePixelRect chatRegion);
+
     void Hide();
 }
 

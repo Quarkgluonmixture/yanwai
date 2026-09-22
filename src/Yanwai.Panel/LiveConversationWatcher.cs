@@ -14,12 +14,14 @@ namespace Yanwai.Panel;
 public sealed class LiveMessageEventArgs : EventArgs
 {
     public LiveMessageEventArgs(
+        string messageId,
         string transcript,
         string targetMessage,
         int skippedUntrusted,
         CapturePixelRect anchor,
         CapturePixelRect chatRegion)
     {
+        MessageId = messageId;
         Transcript = transcript;
         TargetMessage = targetMessage;
         SkippedUntrusted = skippedUntrusted;
@@ -27,7 +29,13 @@ public sealed class LiveMessageEventArgs : EventArgs
         ChatRegion = chatRegion;
     }
 
-    /// <summary>The bubble this judgment is about, in capture-frame pixels.</summary>
+    /// <summary>
+    /// The observer's logical id for the bubble. Stays the same while it scrolls, so
+    /// <see cref="LiveAnchorsEventArgs"/> can say where it is now.
+    /// </summary>
+    public string MessageId { get; }
+
+    /// <summary>The bubble this judgment is about, in capture-frame pixels, when it arrived.</summary>
     public CapturePixelRect Anchor { get; }
 
     /// <summary>The chat area the bubble must stay inside to keep the HUD attached.</summary>
@@ -40,6 +48,31 @@ public sealed class LiveMessageEventArgs : EventArgs
 
     /// <summary>How many recent messages were left out because OCR did not trust them.</summary>
     public int SkippedUntrusted { get; }
+}
+
+public sealed class LiveAnchorsEventArgs : EventArgs
+{
+    public LiveAnchorsEventArgs(
+        IReadOnlyDictionary<string, CapturePixelRect> visibleBubbles,
+        CapturePixelRect chatRegion,
+        bool captureIsClean)
+    {
+        VisibleBubbles = visibleBubbles;
+        ChatRegion = chatRegion;
+        CaptureIsClean = captureIsClean;
+    }
+
+    /// <summary>Where each bubble on screen is in this frame, by logical message id.</summary>
+    public IReadOnlyDictionary<string, CapturePixelRect> VisibleBubbles { get; }
+
+    public CapturePixelRect ChatRegion { get; }
+
+    /// <summary>
+    /// False when the frame came from the visible-desktop fallback, which photographs
+    /// whatever is on top of WeChat — including the HUD itself. Positions from such a
+    /// frame must not be used to place the HUD.
+    /// </summary>
+    public bool CaptureIsClean { get; }
 }
 
 public sealed class LiveWindowEventArgs : EventArgs
@@ -94,6 +127,7 @@ public sealed class LiveConversationWatcher : IDisposable
     private CancellationTokenSource? _cancellation;
     private Task? _loop;
     private bool _wasUnavailable;
+    private bool _lastFrameWasFallback;
 
     public LiveConversationWatcher(string tessdataDirectory, int intervalMilliseconds = 250)
     {
@@ -137,6 +171,12 @@ public sealed class LiveConversationWatcher : IDisposable
     /// cannot be found. Drives the overlay's follow behaviour.
     /// </summary>
     public event EventHandler<LiveWindowEventArgs>? WindowObserved;
+
+    /// <summary>
+    /// Raised after every observed frame with the current position of each visible
+    /// bubble. Drives the HUD's scroll behaviour.
+    /// </summary>
+    public event EventHandler<LiveAnchorsEventArgs>? AnchorsObserved;
 
     public bool IsRunning => _loop is { IsCompleted: false };
 
@@ -236,9 +276,44 @@ public sealed class LiveConversationWatcher : IDisposable
                     // The observer locates the chat region internally but does not
                     // report it, and the overlay needs it to know when a bubble has
                     // scrolled out. Locating again costs a few milliseconds.
-                    _lastChatRegionBox = _chatRegionLocator.Locate(frame).Bounds;
+                    var chatRegion = _chatRegionLocator.Locate(frame).Bounds;
+                    _lastChatRegionBox = chatRegion;
 
-                    await _observer.ObserveAsync(frame, cancellationToken).ConfigureAwait(false);
+                    var isFallback = frame.Method == CaptureMethod.VisibleDesktopFallback;
+                    if (isFallback && !_lastFrameWasFallback)
+                    {
+                        // The first fallback frame may contain the HUD itself, which the
+                        // detector could read as a bubble. Hide the HUD and drop this
+                        // frame; the next one is taken with the HUD off screen.
+                        _lastFrameWasFallback = true;
+                        Report("截图退回到桌面拷贝（会拍到浮层），浮层暂停显示。");
+                        AnchorsObserved?.Invoke(
+                            this,
+                            new LiveAnchorsEventArgs(
+                                new Dictionary<string, CapturePixelRect>(),
+                                chatRegion,
+                                captureIsClean: false));
+                    }
+                    else
+                    {
+                        if (!isFallback && _lastFrameWasFallback)
+                        {
+                            Report("截图恢复为离屏绘制，浮层恢复。");
+                        }
+
+                        _lastFrameWasFallback = isFallback;
+                        await _observer.ObserveAsync(frame, cancellationToken).ConfigureAwait(false);
+
+                        var visible = new Dictionary<string, CapturePixelRect>(StringComparer.Ordinal);
+                        foreach (var bubble in _observer.State.VisibleMessages)
+                        {
+                            visible[bubble.LogicalMessageId] = bubble.BubbleRect;
+                        }
+
+                        AnchorsObserved?.Invoke(
+                            this,
+                            new LiveAnchorsEventArgs(visible, chatRegion, captureIsClean: !isFallback));
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -314,6 +389,7 @@ public sealed class LiveConversationWatcher : IDisposable
         RemoteMessageArrived?.Invoke(
             this,
             new LiveMessageEventArgs(
+                message.Id,
                 built.Transcript,
                 message.NormalizedText,
                 built.SkippedUntrusted,

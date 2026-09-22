@@ -30,3 +30,16 @@ append-only。标题行打标签，用 `grep -n '^## ' LOG.md` 出目录。
 - 仓库已有自己的 docs 约定（VISION/DECISIONS/SPEC/EXAMPLES/ACCEPTANCE/CONTEXT）。
   ⇒ 不套模板、只补缺的四件；`docs/ACCEPTANCE.md` 继续当阶段唯一真相，快照只放一行 cursor。
 - GOTCHAS 直接拆出来而不是先塞进快照：这一轮攒下 9 条耐久坑，塞进去必然把快照顶爆。
+
+## [2026-09-23] 浮层跟随滚动 + fallback 帧不喂浮层  #ship
+- observer 每帧重建 `State.VisibleMessages`（逻辑 id → 这一帧的气泡框），滚动时同一条消息 id 不变。
+  ⇒ watcher 每帧把这张表发出来，面板按「被判定那条的 id」查位置，查不到就隐藏但**保留内容**，
+  滚回来自动重新出现。没往 observer 里加任何东西。
+- Jev 要近一秒，结果回来时气泡可能已经动了 ⇒ Show 之后立刻用最新一帧的位置再对齐一次。
+- fallback（桌面拷贝）会把浮层自己拍进帧里：第一帧 fallback 直接丢弃并隐藏浮层，
+  后续 fallback 帧照常观察，但位置不给浮层用。选「拒绝显示」而不是「先隐藏再抓」，
+  因为后者要跨线程等 UI 隐藏完成，而 fallback 在本机从没出现过，不值得这份复杂度。
+- 新增单测 `Visible_messages_track_a_live_message_through_scroll_away_and_back`：
+  抓的是「observer 不刷新框 / 离屏 id 还挂在表里」⇒ 浮层钉在旧位置。
+- 顺手发现 `.ocr-cache/tessdata` 不在了（改名搬目录时没跟着走，它是 gitignored），
+  已用 `scripts/install-ocr-models.ps1` 按钉死的 revision 重下，大小与旧克隆一致。

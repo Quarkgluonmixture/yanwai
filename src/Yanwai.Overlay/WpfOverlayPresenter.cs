@@ -22,6 +22,7 @@ public sealed class WpfOverlayPresenter : IOverlayPresenter, IDisposable
     private CapturePixelRect? _anchor;
     private CapturePixelRect _chatRegion;
     private bool _hasContent;
+    private WeChatWindowSnapshot? _lastSnapshot;
 
     public void Show(OverlayContent content, CapturePixelRect anchor, CapturePixelRect chatRegion)
     {
@@ -33,10 +34,30 @@ public sealed class WpfOverlayPresenter : IOverlayPresenter, IDisposable
         _hasContent = true;
     }
 
+    public void Reanchor(CapturePixelRect? anchor, CapturePixelRect chatRegion)
+    {
+        if (!_hasContent)
+        {
+            return;
+        }
+
+        _anchor = anchor;
+        _chatRegion = chatRegion;
+        Follow(_lastSnapshot);
+    }
+
     public void Follow(WeChatWindowSnapshot? snapshot)
     {
-        if (!_hasContent || _anchor is not { } anchor)
+        _lastSnapshot = snapshot;
+        if (!_hasContent)
         {
+            return;
+        }
+
+        if (_anchor is not { } anchor)
+        {
+            // Content is kept; only the position is unknown right now.
+            HideWindow();
             return;
         }
 

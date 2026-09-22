@@ -233,6 +233,52 @@ public sealed class MessageObserverTests
         Assert.Equal(4, ocr.Calls);
     }
 
+    /// <summary>
+    /// The HUD finds its bubble after a scroll by looking its id up in VisibleMessages.
+    /// If the rect were not refreshed, or an off-screen id stayed listed, the HUD would
+    /// stay pinned where the message used to be.
+    /// </summary>
+    [Fact]
+    public async Task Visible_messages_track_a_live_message_through_scroll_away_and_back()
+    {
+        var a = Bubble(12, 45, 60, MessageSide.Remote);
+        var bBottom = Bubble(12, 80, 70, MessageSide.Remote);
+        var bTop = Bubble(12, 45, 70, MessageSide.Remote);
+        var cBottom = Bubble(12, 115, 80, MessageSide.Remote);
+        var cMiddle = Bubble(12, 80, 80, MessageSide.Remote);
+        var d = Bubble(12, 115, 90, MessageSide.Remote);
+        var detector = new StubBubbleDetector(
+            [bBottom, cBottom],
+            [bTop, cMiddle, d],
+            [a, bBottom, cBottom],
+            [bTop, cMiddle, d]);
+        var observer = CreateObserver(detector, new StubOcrEngine(Ocr("B"), Ocr("C"), Ocr("D"), Ocr("A")));
+
+        await observer.ObserveAsync(
+            Frame(10, [(bBottom.Bounds, (byte)70), (cBottom.Bounds, (byte)80)]),
+            CancellationToken.None);
+        var appended = await observer.ObserveAsync(
+            Frame(10, [(bTop.Bounds, (byte)70), (cMiddle.Bounds, (byte)80), (d.Bounds, (byte)90)]),
+            CancellationToken.None);
+        var liveId = Assert.Single(appended.NewMessages).Id;
+        var cId = IdAt(observer, cMiddle.Bounds);
+        Assert.Equal(d.Bounds, Assert.Single(observer.State.VisibleMessages, m => m.LogicalMessageId == liveId).BubbleRect);
+
+        await observer.ObserveAsync(
+            Frame(10, [(a.Bounds, (byte)60), (bBottom.Bounds, (byte)70), (cBottom.Bounds, (byte)80)]),
+            CancellationToken.None);
+        Assert.DoesNotContain(observer.State.VisibleMessages, m => m.LogicalMessageId == liveId);
+        Assert.Equal(cBottom.Bounds, Assert.Single(observer.State.VisibleMessages, m => m.LogicalMessageId == cId).BubbleRect);
+
+        await observer.ObserveAsync(
+            Frame(10, [(bTop.Bounds, (byte)70), (cMiddle.Bounds, (byte)80), (d.Bounds, (byte)90)]),
+            CancellationToken.None);
+        Assert.Equal(d.Bounds, Assert.Single(observer.State.VisibleMessages, m => m.LogicalMessageId == liveId).BubbleRect);
+
+        static string IdAt(IMessageObserver observer, CapturePixelRect rect) =>
+            Assert.Single(observer.State.VisibleMessages, m => m.BubbleRect == rect).LogicalMessageId;
+    }
+
     [Fact]
     public async Task Conversation_switch_creates_a_new_epoch_and_bootstraps_without_state_leakage()
     {

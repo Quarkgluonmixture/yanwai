@@ -24,6 +24,8 @@ public partial class MainWindow : Window
     private CapturePixelRect _pendingAnchor;
     private CapturePixelRect _pendingChatRegion;
     private bool _hasPendingAnchor;
+    private string? _pendingMessageId;
+    private LiveAnchorsEventArgs? _latestAnchors;
     private OverlayDemo? _demo;
 
     public MainWindow()
@@ -101,6 +103,7 @@ public partial class MainWindow : Window
         _watcher.RemoteMessageArrived += OnRemoteMessageArrived;
         _watcher.RemoteMessageSkipped += OnRemoteMessageSkipped;
         _watcher.WindowObserved += OnWindowObserved;
+        _watcher.AnchorsObserved += OnAnchorsObserved;
         _overlay = new WpfOverlayPresenter();
         _watcher.Start();
 
@@ -121,6 +124,7 @@ public partial class MainWindow : Window
             watcher.RemoteMessageArrived -= OnRemoteMessageArrived;
             watcher.RemoteMessageSkipped -= OnRemoteMessageSkipped;
             watcher.WindowObserved -= OnWindowObserved;
+            watcher.AnchorsObserved -= OnAnchorsObserved;
             await watcher.StopAsync();
             watcher.Dispose();
         }
@@ -128,6 +132,8 @@ public partial class MainWindow : Window
         _overlay?.Dispose();
         _overlay = null;
         _hasPendingAnchor = false;
+        _pendingMessageId = null;
+        _latestAnchors = null;
 
         ConversationBox.IsReadOnly = false;
         AnalyzeButton.IsEnabled = _client is not null;
@@ -136,6 +142,28 @@ public partial class MainWindow : Window
 
     private void OnWindowObserved(object? sender, LiveWindowEventArgs e) =>
         Dispatcher.InvokeAsync(() => _overlay?.Follow(e.Snapshot));
+
+    private void OnAnchorsObserved(object? sender, LiveAnchorsEventArgs e) =>
+        Dispatcher.InvokeAsync(() =>
+        {
+            _latestAnchors = e;
+            if (_overlay is null || _pendingMessageId is null)
+            {
+                return;
+            }
+
+            _overlay.Reanchor(ResolveAnchor(_pendingMessageId, e), e.ChatRegion);
+        });
+
+    /// <summary>
+    /// Where the judged bubble is in the latest frame, or null when it is off screen or
+    /// the frame cannot be trusted. Null hides the HUD instead of pinning it to a
+    /// position the message has already left.
+    /// </summary>
+    private static CapturePixelRect? ResolveAnchor(string messageId, LiveAnchorsEventArgs anchors) =>
+        anchors.CaptureIsClean && anchors.VisibleBubbles.TryGetValue(messageId, out var rect)
+            ? rect
+            : null;
 
     private void OnWatcherStatus(object? sender, LiveStatusEventArgs e) =>
         Dispatcher.InvokeAsync(() => StatusText.Text = e.Message);
@@ -153,6 +181,7 @@ public partial class MainWindow : Window
 
             // The HUD belonged to the previous message; this one is not it.
             _hasPendingAnchor = false;
+            _pendingMessageId = null;
             _overlay?.Hide();
         });
 
@@ -163,6 +192,7 @@ public partial class MainWindow : Window
             ConversationBox.ScrollToEnd();
             _pendingAnchor = e.Anchor;
             _pendingChatRegion = e.ChatRegion;
+            _pendingMessageId = e.MessageId;
             _hasPendingAnchor = true;
             _ = AnalyzeAsync(e.SkippedUntrusted);
         });
@@ -335,6 +365,12 @@ public partial class MainWindow : Window
                 rows),
             _pendingAnchor,
             _pendingChatRegion);
+
+        // Jev takes most of a second; the bubble may have moved while it answered.
+        if (_pendingMessageId is not null && _latestAnchors is { } anchors)
+        {
+            _overlay.Reanchor(ResolveAnchor(_pendingMessageId, anchors), anchors.ChatRegion);
+        }
     }
 
     protected override void OnClosed(EventArgs e)
