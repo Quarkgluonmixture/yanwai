@@ -12,6 +12,23 @@ pending; this is not Phase 4.5 PASS. Run the actual worker evaluation with
 `python -m scripts.compare_production_unified --root .ocr-cache/phase4.5-paddle-bubble`
 to check the immutable benchmark parity. Reports remain private under `.ocr-cache`.
 
+Observer regression fix (D-024) is pending real-device acceptance: geometry-aware
+occurrence matching, title-ink identity evidence and explicit partial-crop handling.
+Extraction/trust calibration is unchanged. In `observe.ps1` diagnostics, inspect
+`occurrence`, `title_visual_distance`, and `bubble_visibility` records. Repeat Self
+and Remote equal-message appends, scroll away/back, A→B→A and clipped multiline history.
+
+Optional private header audit (no OCR, no contact-name logging):
+
+```powershell
+dotnet run --project src/WeChatJevHud.Diagnostics -- `
+  --identity-audit debug-captures/chat-a.png --compare-image debug-captures/chat-b.png `
+  --output .ocr-cache/header-identity-audit.json
+```
+
+This explicitly exports two title-region PNGs and structured distances for visual
+inspection. Do not commit them. A same-title comparison alone is not switch acceptance.
+
 - `WeChatJevHud.App`: WPF diagnostic UI that refreshes HWND/process/title/class, desktop bounds, monitor, and DPI every 500 ms. Its button saves and previews one frame only when explicitly pressed.
 - `WeChatJevHud.Diagnostics`: command-line window diagnostics, explicit capture, offline fixture detection, and capture-plus-detection.
 - `WeChatJevHud.Vision`: capture-relative chat ROI location, `Remote`/`Self`/`Unknown` text-bubble detection, heuristic detection scores, timing, and annotated debug rendering.

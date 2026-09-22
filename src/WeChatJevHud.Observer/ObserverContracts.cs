@@ -51,7 +51,9 @@ public sealed record ObserverOptions(
 
 public sealed record ConversationIdentityComparison(
     bool IsMatch,
-    string Diagnostics);
+    string Diagnostics,
+    double? TitleVisualDistance = null,
+    double? TitleAspectDistance = null);
 
 public sealed record ConversationEpoch(
     long Id,
@@ -102,7 +104,9 @@ public sealed record ConversationIdentityObservation(
     int VisibleCandidates,
     int PendingObservations,
     int RequiredObservations,
-    bool LayoutChanged);
+    bool LayoutChanged,
+    double? TitleVisualDistance = null,
+    double? TitleAspectDistance = null);
 
 public sealed record ObservedMessage(
     string Id,
@@ -119,10 +123,13 @@ public sealed record ObservedMessage(
     bool IsVisible,
     string? QuotedText = null,
     CapturePixelRect? QuotedRegion = null,
-    OcrDiagnostics? OcrDiagnostics = null)
+    OcrDiagnostics? OcrDiagnostics = null,
+    bool IsFullyVisible = true,
+    bool HasCompleteText = true,
+    string? CompleteCropFingerprint = null)
 {
     public bool IsTrustedForSemantics =>
-        OcrStatus == OcrTextStatus.Recognized &&
+        IsFullyVisible && HasCompleteText && OcrStatus == OcrTextStatus.Recognized &&
         !string.IsNullOrWhiteSpace(NormalizedText);
 }
 
@@ -130,7 +137,8 @@ public sealed record VisibleMessageSnapshot(
     string LogicalMessageId,
     MessageSide Side,
     CapturePixelRect BubbleRect,
-    string VisualFingerprint);
+    string VisualFingerprint,
+    bool IsFullyVisible = true);
 
 public sealed record RecentConversationSnapshot(
     ConversationEpoch? Epoch,
@@ -168,7 +176,14 @@ public sealed record ObservationResult(
     ObserverCounters Counters,
     ObserverTimings Timings,
     ConversationIdentityObservation Identity,
-    ConversationBaselineObservation Baseline);
+    ConversationBaselineObservation Baseline,
+    IReadOnlyList<OccurrenceMatchDiagnostic>? OccurrenceMatches = null,
+    IReadOnlyList<BubbleVisibilityDiagnostic>? BubbleVisibility = null);
+
+public sealed record OccurrenceMatchDiagnostic(string PreviousId, int PreviousY, int CandidateY,
+    double EstimatedDeltaY, double MatchCost, int AmbiguousOccurrenceCount);
+
+public sealed record BubbleVisibilityDiagnostic(CapturePixelRect BubbleBounds, CapturePixelRect ChatRoi, bool IsFullyVisible);
 
 public sealed class ConversationChangedEventArgs(
     ConversationEpoch? previousEpoch,

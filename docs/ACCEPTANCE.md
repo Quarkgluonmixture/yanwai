@@ -387,6 +387,50 @@ Final manual acceptance evidence (2026-09-21):
 **Status: IN PROGRESS — Unified production extraction implemented and production
 corpus parity verified; real observer matrix and separate trust calibration pending.**
 
+### Observer regression gate (2026-09-22, D-024)
+
+Phase 4.5 remains blocked on real-device observer acceptance. The user confirmed that
+two suspicious NEW samples were genuinely newly sent (not history replay), but a
+chat switch was missed. A controlled repeat then logged only the first of two Self
+`好` messages as NEW; the second had a separate ID but History origin. A→B→A remained
+epoch 1 and B content entered A history. Multiline text also changed on rediscovery;
+the old logs cannot prove whether that crop was clipped.
+
+- Five deterministic regressions were run red before fixes: Self/Remote equal
+  appends, sparse different title ink, and top/bottom partial OCR suppression.
+- Occurrence alignment now preserves previous-visible order and minimizes translated
+  geometry displacement; a stationary identical suffix may emit NEW. The old
+  all-identical scroll test was corrected to include actual viewport translation,
+  because its former unchanged positions were indistinguishable from a real append.
+- Title identity now uses tight ink with rasterization tolerance and structured
+  distances. Old-chat OCR is not borrowed when a new title fails continuity approval.
+- Partial candidates have explicit visibility/completeness, skip OCR, preserve
+  complete text, and need anchored evidence for edge-based association. Full recovery
+  OCRs incomplete text once; cached complete text needs a full-crop fingerprint or
+  independent full OCR agreement after clipping.
+- Private header audit: same title in 1116×680 / 662×680 captures had zero title
+  distance; same title at known 150%/100% DPI had visual distance 0.0854 and aspect
+  distance 0.0541 (same); different titles had 0.2972 / 0.4595 (different).
+  Title PNGs and JSON stay under `.ocr-cache/header-identity-*-audit.*`.
+  This small audit supports the representation, not general identity accuracy.
+- No Unified Paddle extraction, OCR normalization, OCR trust calibration or Jev changes.
+- Final native Windows gates: `dotnet format --verify-no-changes`, full solution
+  build (0 warnings/errors), and 129 .NET tests passed (63 Observer, 53 OCR,
+  6 Vision, 5 Windows, 2 Capture; no failures/skips).
+- Post-fix 10-second real observer smoke: 32 frames, 31 unchanged, one detection
+  run, 13 bootstrap OCR/Paddle requests, zero NEW/failures/fallbacks. Unchanged
+  frames issued no additional OCR. This is not the interactive manual gate below.
+
+Required manual retest (not yet PASS):
+
+1. Self `好`, `好`, then Remote `好`, `好`: two NEW events and distinct IDs per side.
+2. Scroll away/back: no replay.
+3. A→B→A: each switch pending 1/3→2/3→confirmed, exactly one epoch increment;
+   no B state in A and target history bootstrap-only.
+4. Resize and 150%↔100% DPI within one chat: no epoch churn.
+5. Scroll multiline history partially beyond each viewport edge, then reveal it:
+   partial diagnostics, no partial OCR/corrupted text replacement, full OCR once.
+
 ### Goal
 
 Use Unified small-det + small-rec for already-isolated bubbles without regressing

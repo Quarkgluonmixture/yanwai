@@ -19,7 +19,9 @@ public sealed class VisualConversationIdentityProvider : IConversationIdentityPr
     {
         _options = options ?? new VisualConversationIdentityOptions();
         if (_options.MaxHammingDistance is < 0 or > 128 ||
-            _options.MaxMeanLuminanceDifference is < 0 or > 255)
+            _options.MaxMeanLuminanceDifference is < 0 or > 255 ||
+            !double.IsFinite(_options.MaxTitleVisualDistance) || _options.MaxTitleVisualDistance is <= 0 or >= 1 ||
+            !double.IsFinite(_options.MaxTitleAspectDistance) || _options.MaxTitleAspectDistance <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(options), "Visual identity thresholds are outside their valid ranges.");
         }
@@ -29,19 +31,20 @@ public sealed class VisualConversationIdentityProvider : IConversationIdentityPr
     {
         var headerHeight = Math.Max(1, chatRegion.Y);
         var availableWidth = Math.Max(1, Math.Min(chatRegion.Width, frame.Width - chatRegion.X));
-        var horizontalInset = Math.Min(availableWidth - 1, Math.Max(0, availableWidth / 32));
-        var topInset = Math.Min(headerHeight - 1, Math.Max(0, headerHeight / 8));
+        var horizontalInset = Math.Min(availableWidth - 1, Math.Max(0, headerHeight / 12));
+        var topInset = Math.Min(headerHeight - 1, Math.Max(0, headerHeight / 4));
         var headerWidth = Math.Max(1, (availableWidth * 11 / 16) - horizontalInset);
         var header = new CapturePixelRect(
             chatRegion.X + horizontalInset,
             topInset,
             headerWidth,
-            Math.Max(1, headerHeight - (topInset * 2)));
+            Math.Max(1, headerHeight - topInset - headerHeight / 10));
         var fingerprint = PixelFingerprint.ComputePerceptual(frame, header);
         return new VisualConversationIdentityEvidence(
             fingerprint.AverageHash,
             fingerprint.DifferenceHash,
-            fingerprint.MeanLuminance);
+            fingerprint.MeanLuminance,
+            TitleVisualFingerprint.Extract(frame, header));
     }
 
     public ConversationIdentityComparison Compare(
@@ -59,6 +62,17 @@ public sealed class VisualConversationIdentityProvider : IConversationIdentityPr
             BitOperations.PopCount(acceptedVisual.DifferenceHash ^ candidateVisual.DifferenceHash);
         var meanLuminanceDifference = Math.Abs(
             acceptedVisual.MeanLuminance - candidateVisual.MeanLuminance);
+        if (acceptedVisual.Title is { } oldTitle && candidateVisual.Title is { } newTitle)
+        {
+            var visualDistance = oldTitle.Distance(newTitle);
+            var aspectDistance = Math.Abs(Math.Log(oldTitle.Aspect / newTitle.Aspect));
+            return new(visualDistance <= _options.MaxTitleVisualDistance && aspectDistance <= _options.MaxTitleAspectDistance,
+                $"title_ink=true title_roi={newTitle.Bounds}", visualDistance, aspectDistance);
+        }
+        if ((acceptedVisual.Title is null) != (candidateVisual.Title is null))
+        {
+            return new(false, "title_ink_availability_changed=true", 1, 1);
+        }
         return new(
             hammingDistance <= _options.MaxHammingDistance &&
             meanLuminanceDifference <= _options.MaxMeanLuminanceDifference,
@@ -66,15 +80,21 @@ public sealed class VisualConversationIdentityProvider : IConversationIdentityPr
                 $"hamming_distance={hammingDistance} mean_luminance_delta={meanLuminanceDifference}"));
     }
 
+    public CapturePixelRect? LocateTitleRegion(CapturedFrame frame, CapturePixelRect chatRegion) =>
+        ((VisualConversationIdentityEvidence)GetVisualEvidence(frame, chatRegion)).Title?.Bounds;
+
     private sealed record VisualConversationIdentityEvidence(
         ulong AverageHash,
         ulong DifferenceHash,
-        byte MeanLuminance) : IConversationIdentityEvidence;
+        byte MeanLuminance,
+        TitleVisualFingerprint? Title) : IConversationIdentityEvidence;
 }
 
 public sealed record VisualConversationIdentityOptions(
     int MaxHammingDistance = 18,
-    int MaxMeanLuminanceDifference = 24);
+    int MaxMeanLuminanceDifference = 24,
+    double MaxTitleVisualDistance = .24,
+    double MaxTitleAspectDistance = .25);
 
 internal static class PixelFingerprint
 {

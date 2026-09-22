@@ -389,6 +389,10 @@ CJK OCR artifacts measurable.
 
 ## D-018 — Message observation uses epoch-scoped ordered reconciliation
 
+Occurrence tie-breaking, title representation, and partial visibility were refined by
+D-024 after additional Phase 4.5 real-machine regressions. The original Phase 4
+acceptance remains historical evidence, not proof that these new cases passed.
+
 **Decision**
 
 Phase 4 places stateful observation behind `IMessageObserver`. It establishes a
@@ -626,3 +630,43 @@ all final text, line counts and boxes match the accepted benchmark, 79/84 exact;
 calibration single-line 46/47; multiline/quote 7/7; both DPI cohorts 7/7; no fallback.
 Observed wrong outputs remain untrusted. Real observer acceptance and subsequent
 trust calibration are separate remaining gates; Phase 4.5 is not PASS.
+
+---
+
+## D-024 — Observer occurrences, title ink and visible completeness
+
+The 2026-09-22 real run exposed Observer bugs without a Paddle failure: two equal
+appends received different IDs but the second was History; chat A→B→A stayed in one
+epoch; a historical multiline crop produced different text on rediscovery (clipping
+was suspected, not proven by the old log).
+
+Previous-visible occurrences now anchor monotonic alignment before older history can
+fill gaps. Equal-length alignments minimize displacement after a global translation/
+scale estimate from unique strong visual neighbors. Stationary complete previous
+occurrences support an appended suffix even without a different-text anchor. Moving
+all-identical views without a reliable anchor remain conservatively suppressed.
+Exactly aliased sampled views (a whole-row scroll indistinguishable from an append)
+cannot be perfectly resolved from these inputs; ordinary scrolling is tested, not an
+arbitrary-history guarantee. Text-specific cases and a global seen-text set are rejected.
+
+Conversation evidence uses the dominant title-ink band, tight capture-relative bounds,
+area-normalized occupancy and local glyph-scale differences plus aspect distance.
+Dynamic right-side controls and separate title-bar ink are excluded. Structured
+visual/aspect distances accompany the existing previous-visible continuity and stable
+three-observation switch gate. A stable-layout title mismatch needs broad, diverse
+previous-visible continuity to rebase, not two generic short bubble silhouettes.
+Cached OCR from an unaccepted old identity must not bootstrap a new identity.
+No HWND title or header OCR is used. Empty/no-ink views retain conservative fallback.
+
+Boundary-touching candidates are explicitly partial. They do not invoke OCR or become
+semantic-ready. A new partial is an empty, incomplete placeholder, not complete history
+text. Association through a surviving edge requires a reliable neighboring translation
+anchor; geometry alone cannot borrow another message's cached text. When fully visible,
+an incomplete placeholder is OCRed once and updated under the same ID where alignment
+supports it. Existing complete text is never replaced by partial OCR. Reusing full text
+after clipping additionally requires the stored complete crop fingerprint; otherwise
+independent complete-crop OCR must agree before retaining that known identity.
+Completeness changes are Observer evidence safety, not OCR trust recalibration.
+
+Unified Paddle extraction, score semantics and trust calibration are unchanged.
+Real-machine repeat/switch/partial-scroll acceptance is still required; no Phase 5.

@@ -346,10 +346,12 @@ adapters rather than state hidden in the capture loop.
 
 The first frame in an epoch is a bootstrap: visible bubbles may be OCRed to seed
 context, but they never produce `NewMessageObserved`. The top-level HWND title is not
-used. A replaceable visual-identity provider samples only a stable left/central header
-subregion, excludes dynamic right-side controls, canonicalizes it to fixed grayscale
-grids, and compares average/difference perceptual hashes by Hamming distance plus a
-bounded mean-luminance delta. The default thresholds are explicit in
+used. A replaceable visual-identity provider searches the stable left/central header,
+finds the dominant bright title-ink band, and canonicalizes tight ink bounds to a
+128×24 area-occupancy grid. Local glyph-scale/overall ink differences and aspect ratio
+distinguish similar titles without being dominated by background. Separate title-bar
+ink and dynamic right-side controls are excluded. No-ink views retain the coarse
+perceptual/luminance fallback. Default thresholds are explicit in
 `VisualConversationIdentityOptions`; evidence remains opaque outside the replaceable
 identity-provider seam.
 
@@ -362,6 +364,10 @@ identity participates in that multi-message ordered continuity. The normal permi
 perceptual threshold, dimensions/geometry, and
 matches found only in the bounded recent-history buffer are weak evidence. They may
 assist message reconciliation but cannot rebase a changed conversation identity.
+A title mismatch on a stable layout additionally requires at least three diverse
+strict matches covering 80% of the previous/current view to approve a visual rebase.
+Old-identity cached OCR is not hydrated unless visual rebase evidence permits it;
+otherwise independently acquired pending-candidate OCR seeds the confirmed new epoch.
 Without strong previous-visible continuity, the same candidate must remain stable for
 three observations before a switch is confirmed. The first two observations remain
 pending and do not mutate the current conversation state or emit messages; pending OCR
@@ -384,15 +390,29 @@ Unstable transition frames cannot switch epochs and avoid OCR when visual contin
 is not yet available. Empty views rebase after layout stabilization. This policy is
 intentionally conservative across 150%/100% DPI rerendering.
 
-Visible bubble identity uses ordered sequence alignment over side plus visual crop
-fingerprint, with normalized OCR text as a secondary reconciliation signal after OCR
-is already necessary. Geometry is retained and updated but is not identity. This
+Visible bubble identity locks the immediately previous visible ordered occurrences
+first, then fills chronological gaps from recent history. Maximum-cardinality
+alignment ties minimize geometry displacement, using a global Y translation/scale
+estimated from mutually unique strict visible anchors. Side/fingerprint/text remains
+the match predicate; Y alone is not identity. This
 allows repeated identical messages to receive distinct logical IDs. A known live-tail
 anchor distinguishes appended suffixes from history discovered by scrolling; when
 there is insufficient overlap, the V0 policy suppresses conservatively instead of
 claiming an old history item is newly received. If an all-identical sequence can be
 explained equally well as an older prefix discovered by scrolling or a new suffix, it
-is treated as history unless another distinct matched bubble anchors the live edge.
+is treated as history unless a distinct matched bubble anchors the edge or all previous
+occurrences remain stationary and consistently matched, identifying a visible appended
+suffix. Pixel-identical sampled scroll/append ambiguities are not fully observable.
+
+Bubble bounds touching/crossing the usable chat ROI top/bottom (scale-relative guard)
+are potentially partial. `IsFullyVisible` describes the current view and
+`HasCompleteText` describes stored text evidence. Unknown partials retain empty
+placeholders, skip OCR and cannot become semantic-ready. Surviving-edge reconciliation
+requires a unique neighboring translation anchor; later full crops can complete the
+same logical record, emitting an observation update but never replaying history as NEW.
+Full text already stored is preserved during clipping. Full reappearance may reuse
+it only with the stored complete-crop fingerprint or independent complete OCR equality.
+Uncertain association falls back to conservative discovery rather than borrowing text.
 
 The observer reports:
 
@@ -418,6 +438,11 @@ Each changed-identity diagnostic also separates
 `history_only_matches`. The weak counts exclude matches already classified as strong,
 and reused OCR text is not counted as independent trusted-text evidence. No aggregate
 visual-overlap count is used as switch approval.
+
+Identity diagnostics also expose structured `TitleVisualDistance` and
+`TitleAspectDistance`. Repeated-match diagnostics include previous ID/Y, candidate Y,
+estimated delta Y, match cost and ambiguous occurrence count. Visibility diagnostics
+report bubble bounds, chat ROI and completeness. No private title text is printed.
 
 and per-frame `frame_check_ms`, `change_detect_ms`, `bubble_detect_ms`, `ocr_ms`, and
 `observer_reconcile_ms`. Identical chat-ROI fingerprints skip bubble detection and OCR.
@@ -598,7 +623,8 @@ OCR status/confidence, capture-relative bubble rectangle, first-observed time,
 bootstrap/history/live origin, visibility, and optional quote metadata. Nothing in
 this buffer is persisted by the observer.
 
-`IsTrustedForSemantics` is true only for non-empty `Recognized` OCR output.
+`IsTrustedForSemantics` is true only for non-empty `Recognized` OCR output with complete
+stored text and a fully visible current candidate.
 `LowConfidence`, `NoText`, and `Unsupported` messages may remain in observer state but
 must not be treated as semantic-ready by later phases.
 

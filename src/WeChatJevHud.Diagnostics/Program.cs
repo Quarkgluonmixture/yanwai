@@ -9,6 +9,27 @@ using WeChatJevHud.Observer;
 using WeChatJevHud.Vision;
 using WeChatJevHud.Windows;
 
+var identityAudit = OptionValue(args, "--identity-audit");
+if (identityAudit is not null)
+{
+    var other = OptionValue(args, "--compare-image") ?? throw new ArgumentException("--compare-image is required.");
+    var output = Path.GetFullPath(OptionValue(args, "--output") ?? ".ocr-cache/header-identity-audit.json");
+    Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+    var frames = new[] { PngFrameReader.Load(identityAudit), PngFrameReader.Load(other) };
+    var locator = new DarkThemeChatRegionLocator();
+    var provider = new VisualConversationIdentityProvider();
+    var regions = frames.Select(frame => locator.Locate(frame).Bounds).ToArray();
+    var titles = frames.Select((frame, index) => provider.LocateTitleRegion(frame, regions[index])).ToArray();
+    for (var i = 0; i < frames.Length; i++)
+        if (titles[i] is { } title)
+            await File.WriteAllBytesAsync(Path.ChangeExtension(output, $".{i}-title.png"),
+                ImageCropPngEncoder.Encode(new ImageCrop(frames[i], title)));
+    var comparison = provider.Compare(provider.GetVisualEvidence(frames[0], regions[0]), provider.GetVisualEvidence(frames[1], regions[1]));
+    await File.WriteAllTextAsync(output, JsonSerializer.Serialize(new { regions, titles, comparison }, new JsonSerializerOptions { WriteIndented = true }));
+    Console.WriteLine($"Header audit: {output}; same={comparison.IsMatch}; title_visual_distance={comparison.TitleVisualDistance:F4}; title_aspect_distance={comparison.TitleAspectDistance:F4}");
+    return 0;
+}
+
 var routingManifest = OptionValue(args, "--routing-audit");
 if (routingManifest is not null)
 {
@@ -802,6 +823,16 @@ static async Task<int> ObserveWeChatAsync(string[] arguments)
                     var result = await observer.ObserveAsync(frame, cancellation.Token);
                     PrintIdentityObservation(result.Identity);
                     PrintBaselineObservation(result);
+                    foreach (var match in result.OccurrenceMatches ?? [])
+                    {
+                        if (match.AmbiguousOccurrenceCount > 1)
+                            Console.WriteLine($"occurrence previous_id={match.PreviousId} previous_y={match.PreviousY} " +
+                                $"candidate_y={match.CandidateY} estimated_delta_y={match.EstimatedDeltaY:F2} " +
+                                $"match_cost={match.MatchCost:F3} ambiguous_occurrence_count={match.AmbiguousOccurrenceCount}");
+                    }
+                    foreach (var visibility in result.BubbleVisibility ?? [])
+                        Console.WriteLine($"bubble_visibility bounds={visibility.BubbleBounds} chat_roi={visibility.ChatRoi} " +
+                            $"complete={visibility.IsFullyVisible.ToString().ToLowerInvariant()}");
                     foreach (var id in result.DuplicateMessageIds)
                     {
                         Console.WriteLine($"[epoch {result.Epoch.Id}] duplicate suppressed id={id}");
@@ -894,7 +925,8 @@ static string ExtractionDiagnostic(ObservedMessage message)
 {
     var diagnostics = message.OcrDiagnostics;
     var extraction = diagnostics?.Extraction;
-    return $"detected_lines={extraction?.DetectedLineCount.ToString() ?? "n/a"} " +
+    return $"fully_visible={message.IsFullyVisible.ToString().ToLowerInvariant()} complete_text={message.HasCompleteText.ToString().ToLowerInvariant()} " +
+        $"detected_lines={extraction?.DetectedLineCount.ToString() ?? "n/a"} " +
         $"ocr_ms={diagnostics?.TotalElapsed.TotalMilliseconds:F1} " +
         $"detection_ms={extraction?.DetectionElapsed.TotalMilliseconds:F1} " +
         $"recognition_ms={extraction?.RecognitionElapsed.TotalMilliseconds:F1} " +
@@ -948,6 +980,8 @@ static void PrintIdentityObservation(ConversationIdentityObservation identity)
 
     var evidence =
         $"identity_evidence=\"{identity.ProviderDiagnostics}\" " +
+        $"title_visual_distance={identity.TitleVisualDistance?.ToString("F4") ?? "n/a"} " +
+        $"title_aspect_distance={identity.TitleAspectDistance?.ToString("F4") ?? "n/a"} " +
         $"previous_visible_strong_overlap={identity.PreviousVisibleStrongOverlap}/{identity.VisibleCandidates} " +
         $"previous_visible_weak_overlap={identity.PreviousVisibleWeakOverlap}/{identity.VisibleCandidates} " +
         $"trusted_text_overlap={identity.TrustedTextOverlap} " +
