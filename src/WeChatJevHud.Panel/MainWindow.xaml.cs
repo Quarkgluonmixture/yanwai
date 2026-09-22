@@ -16,6 +16,7 @@ public partial class MainWindow : Window
     private readonly IJevClient? _client;
     private readonly string? _startupError;
     private CancellationTokenSource? _inFlight;
+    private LiveConversationWatcher? _watcher;
 
     public MainWindow()
     {
@@ -53,7 +54,75 @@ public partial class MainWindow : Window
 
     private void OnAnalyzeClick(object sender, RoutedEventArgs e) => _ = AnalyzeAsync();
 
-    private async Task AnalyzeAsync()
+    private void OnLiveChecked(object sender, RoutedEventArgs e)
+    {
+        if (_client is null)
+        {
+            LiveToggle.IsChecked = false;
+            return;
+        }
+
+        var tessdata = LiveConversationWatcher.FindTessdata();
+        if (tessdata is null)
+        {
+            StatusText.Text = "找不到 .ocr-cache\\tessdata。先跑 scripts\\install-ocr-models.ps1。";
+            LiveToggle.IsChecked = false;
+            return;
+        }
+
+        try
+        {
+            _watcher = new LiveConversationWatcher(tessdata);
+        }
+        catch (Exception ex)
+        {
+            // Surfacing the reason matters: a failed OCR engine here would otherwise
+            // look identical to "no messages have arrived yet".
+            StatusText.Text = $"实时模式启动失败：{ex.Message}";
+            LiveToggle.IsChecked = false;
+            return;
+        }
+
+        _watcher.StatusChanged += OnWatcherStatus;
+        _watcher.RemoteMessageArrived += OnRemoteMessageArrived;
+        _watcher.Start();
+
+        ConversationBox.IsReadOnly = true;
+        AnalyzeButton.IsEnabled = false;
+        SampleButton.IsEnabled = false;
+    }
+
+    private void OnLiveUnchecked(object sender, RoutedEventArgs e) => _ = StopLiveAsync();
+
+    private async Task StopLiveAsync()
+    {
+        var watcher = _watcher;
+        _watcher = null;
+        if (watcher is not null)
+        {
+            watcher.StatusChanged -= OnWatcherStatus;
+            watcher.RemoteMessageArrived -= OnRemoteMessageArrived;
+            await watcher.StopAsync();
+            watcher.Dispose();
+        }
+
+        ConversationBox.IsReadOnly = false;
+        AnalyzeButton.IsEnabled = _client is not null;
+        SampleButton.IsEnabled = true;
+    }
+
+    private void OnWatcherStatus(object? sender, LiveStatusEventArgs e) =>
+        Dispatcher.InvokeAsync(() => StatusText.Text = e.Message);
+
+    private void OnRemoteMessageArrived(object? sender, LiveMessageEventArgs e) =>
+        Dispatcher.InvokeAsync(() =>
+        {
+            ConversationBox.Text = e.Transcript;
+            ConversationBox.ScrollToEnd();
+            _ = AnalyzeAsync(e.SkippedUntrusted);
+        });
+
+    private async Task AnalyzeAsync(int skippedUntrusted = 0)
     {
         if (_client is null)
         {
@@ -106,6 +175,12 @@ public partial class MainWindow : Window
                 status += $" · 未作答: {string.Join(", ", missing)}";
             }
 
+            if (skippedUntrusted > 0)
+            {
+                // The judgment ran on less context than the screen shows.
+                status += $" · {skippedUntrusted} 条因 OCR 不可信未进上下文";
+            }
+
             StatusText.Text = status;
         }
         catch (OperationCanceledException)
@@ -124,7 +199,17 @@ public partial class MainWindow : Window
             }
 
             cancellation.Dispose();
-            AnalyzeButton.IsEnabled = true;
+
+            // In live mode the button stays disabled; re-enabling it here would hand
+            // back a control that edits a box the watcher owns.
+            AnalyzeButton.IsEnabled = _watcher is null && _client is not null;
         }
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _inFlight?.Cancel();
+        _watcher?.Dispose();
+        base.OnClosed(e);
     }
 }

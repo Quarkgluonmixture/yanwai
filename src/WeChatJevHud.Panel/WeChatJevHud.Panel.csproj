@@ -1,11 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <UseWPF>true</UseWPF>
     <ApplicationManifest>..\WeChatJevHud.App\app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\WeChatJevHud.TypeSafe\WeChatJevHud.TypeSafe.csproj" />
+    <ProjectReference Include="..\WeChatJevHud.Windows\WeChatJevHud.Windows.csproj" />
+    <ProjectReference Include="..\WeChatJevHud.Capture\WeChatJevHud.Capture.csproj" />
+    <ProjectReference Include="..\WeChatJevHud.Vision\WeChatJevHud.Vision.csproj" />
+    <ProjectReference Include="..\WeChatJevHud.Ocr\WeChatJevHud.Ocr.csproj" />
+    <ProjectReference Include="..\WeChatJevHud.Ocr.Windows\WeChatJevHud.Ocr.Windows.csproj" />
+    <ProjectReference Include="..\WeChatJevHud.Ocr.Tesseract\WeChatJevHud.Ocr.Tesseract.csproj" />
+    <ProjectReference Include="..\WeChatJevHud.Observer\WeChatJevHud.Observer.csproj" />
   </ItemGroup>
 </Project>

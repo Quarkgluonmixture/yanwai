@@ -77,6 +77,8 @@
                     Click="OnAnalyzeClick" />
             <Button x:Name="SampleButton" Content="放一段示例" Padding="14,6" Margin="8,0,0,0"
                     Click="OnSampleClick" />
+            <ToggleButton x:Name="LiveToggle" Content="实时模式" Padding="14,6" Margin="8,0,0,0"
+                          Checked="OnLiveChecked" Unchecked="OnLiveUnchecked" />
           </StackPanel>
           <TextBlock x:Name="StatusText" Margin="0,8,0,0" FontSize="12" TextWrapping="Wrap"
                      Foreground="{StaticResource MutedText}" />
