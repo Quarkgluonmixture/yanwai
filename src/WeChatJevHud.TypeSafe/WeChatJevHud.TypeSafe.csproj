@@ -5,4 +5,7 @@
   <ItemGroup>
     <ProjectReference Include="..\WeChatJevHud.Core\WeChatJevHud.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="WeChatJevHud.TypeSafe.Tests" />
+  </ItemGroup>
 </Project>

@@ -1,19 +1,13 @@
 namespace WeChatJevHud.TypeSafe;
 
 /// <summary>
-/// Product seam for the later Jev phase. No transport or version-dependent
-/// TypeSafe contract is implemented until the Phase 5 live-docs gate.
+/// Product seam for Jev. Implementations answer a set of narrow questions about
+/// one shared conversation state (see docs/DECISIONS.md D-002).
 /// </summary>
 public interface IJevClient
 {
-    Task<JevAnalysisResult> AnalyzeAsync(JevAnalysisInput input, CancellationToken cancellationToken);
+    Task<JevResult> AskAsync(
+        string state,
+        IReadOnlyList<JevQuestion> questions,
+        CancellationToken cancellationToken);
 }
-
-public sealed record JevAnalysisInput(
-    string CurrentMessage,
-    IReadOnlyList<string> RecentMessages,
-    string Locale);
-
-public sealed record JevAnalysisResult(IReadOnlyList<JevJudgment> Judgments);
-
-public sealed record JevJudgment(string Name, string Value, double Probability);
