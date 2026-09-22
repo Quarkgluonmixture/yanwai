@@ -20,9 +20,11 @@ public sealed class LiveMessageEventArgs : EventArgs
         string targetMessage,
         int skippedUntrusted,
         CapturePixelRect anchor,
-        CapturePixelRect chatRegion)
+        CapturePixelRect chatRegion,
+        bool isLive)
     {
         MessageId = messageId;
+        IsLive = isLive;
         Transcript = transcript;
         TargetMessage = targetMessage;
         SkippedUntrusted = skippedUntrusted;
@@ -35,6 +37,12 @@ public sealed class LiveMessageEventArgs : EventArgs
     /// <see cref="LiveAnchorsEventArgs"/> can say where it is now.
     /// </summary>
     public string MessageId { get; }
+
+    /// <summary>
+    /// True for a message that just arrived; false for one already on screen that the
+    /// user asked to have judged.
+    /// </summary>
+    public bool IsLive { get; }
 
     /// <summary>The bubble this judgment is about, in capture-frame pixels, when it arrived.</summary>
     public CapturePixelRect Anchor { get; }
@@ -115,6 +123,9 @@ public sealed class LiveConversationWatcher : IDisposable
 {
     private const int RecentContextMessages = 12;
 
+    /// <summary>One Jev call each; a screenful is rarely more than this.</summary>
+    private const int MaxOnScreenJudgments = 8;
+
     private readonly int _intervalMilliseconds;
     private readonly TesseractOcrEngine _tesseractRaw;
     private readonly TesseractOcrEngine _tesseractUpscaled;
@@ -129,7 +140,10 @@ public sealed class LiveConversationWatcher : IDisposable
     private Task? _loop;
     private bool _wasUnavailable;
     private bool _lastFrameWasFallback;
-    private volatile bool _judgeLatestRequested;
+    private volatile bool _judgeScreenEnabled;
+
+    /// <summary>Ids already handed to the panel. Loop thread only.</summary>
+    private readonly HashSet<string> _published = new(StringComparer.Ordinal);
 
     public LiveConversationWatcher(string tessdataDirectory, int intervalMilliseconds = 250)
     {
@@ -183,12 +197,16 @@ public sealed class LiveConversationWatcher : IDisposable
     public bool IsRunning => _loop is { IsCompleted: false };
 
     /// <summary>
-    /// Asks for a judgment of the last remote message already on screen. Messages that
-    /// were visible before live mode started are baseline and never fire on their own
-    /// (GOTCHAS 4); this is the explicit way to judge one. Served on the next frame, on
-    /// the loop thread, so the observer state is never read while it is being written.
+    /// From now on, judge every readable remote message that is on screen, including
+    /// ones scrolled into view later. Messages that were visible before live mode
+    /// started are baseline and never fire on their own (GOTCHAS 4); this is the
+    /// explicit way to judge them. Served on the loop thread, so the observer state is
+    /// never read while it is being written.
     /// </summary>
-    public void RequestJudgeLatest() => _judgeLatestRequested = true;
+    public void EnableJudgeScreen() => _judgeScreenEnabled = true;
+
+    /// <summary>The observer started a new conversation; earlier message ids are gone.</summary>
+    public event EventHandler? ConversationReset;
 
     /// <summary>
     /// Finds the pinned Tesseract models by walking up from the binary. Returns null
@@ -324,10 +342,9 @@ public sealed class LiveConversationWatcher : IDisposable
                             this,
                             new LiveAnchorsEventArgs(visible, chatRegion, captureIsClean: !isFallback));
 
-                        if (_judgeLatestRequested)
+                        if (_judgeScreenEnabled)
                         {
-                            _judgeLatestRequested = false;
-                            JudgeLatestVisible();
+                            JudgeScreen();
                         }
                     }
                 }
@@ -358,44 +375,48 @@ public sealed class LiveConversationWatcher : IDisposable
 
     private void OnConversationChanged(object? sender, ConversationChangedEventArgs e)
     {
+        ConversationReset?.Invoke(this, EventArgs.Empty);
         Report(e.PreviousEpoch is null
             ? "已建立当前会话基线。"
             : $"检测到会话切换（{e.PreviousEpoch.Id} → {e.CurrentEpoch.Id}），重新建立基线。");
     }
 
-    private void JudgeLatestVisible()
+    /// <summary>Runs every frame while enabled; only messages not yet handed over go out.</summary>
+    private void JudgeScreen()
     {
         var state = _observer.State;
         var byId = state.Messages.ToDictionary(m => m.Id, StringComparer.Ordinal);
-        var remoteOnScreen = state.VisibleMessages
-            .Where(bubble => bubble.Side == MessageSide.Remote)
+        var fresh = state.VisibleMessages
+            .Where(bubble => bubble.Side == MessageSide.Remote && !_published.Contains(bubble.LogicalMessageId))
             .OrderByDescending(bubble => bubble.BubbleRect.Y)
             .Select(bubble => byId.GetValueOrDefault(bubble.LogicalMessageId))
             .OfType<ObservedMessage>()
             .ToList();
-        if (remoteOnScreen.Count == 0)
+        if (fresh.Count == 0)
         {
-            // Empty and "not ready yet" look the same from here; name both.
-            Report("屏幕上没找到对方的消息（或会话基线还没建立），没有判定。");
             return;
         }
 
-        // The newest bubble may be a sticker or a line OCR could not read. Judging it
-        // anyway would put a verdict on text we do not have; walk up to the newest one
-        // we can read, and say how many were passed over.
-        var skipped = remoteOnScreen.TakeWhile(m => !m.IsTrustedForSemantics).Count();
-        if (skipped == remoteOnScreen.Count)
+        // Stickers and lines OCR could not read are passed over: a verdict on text we
+        // do not have would look exactly like a verdict on text we do. They are marked
+        // as handled too, so they are counted once instead of every frame.
+        var readable = fresh.Where(m => m.IsTrustedForSemantics).Take(MaxOnScreenJudgments).ToList();
+        var unreadable = fresh.Count(m => !m.IsTrustedForSemantics);
+        foreach (var message in fresh.Where(m => !m.IsTrustedForSemantics))
         {
-            Publish(remoteOnScreen[0]);
-            return;
+            _published.Add(message.Id);
         }
 
-        if (skipped > 0)
+        if (unreadable > 0)
         {
-            Report($"对方最新的 {skipped} 条没有可用文字（表情 / 图片 / 没认出来），改判再往上那条。");
+            Report($"屏幕上又有对方 {fresh.Count} 条，{unreadable} 条没有可用文字（表情 / 图片 / 没认出来），跳过。");
         }
 
-        Publish(remoteOnScreen[skipped]);
+        // Newest first, so the one most likely to need an answer comes back first.
+        foreach (var message in readable)
+        {
+            Publish(message, isLive: false);
+        }
     }
 
     private void OnNewMessageObserved(object? sender, MessageObservedEventArgs e)
@@ -405,12 +426,11 @@ public sealed class LiveConversationWatcher : IDisposable
             return;
         }
 
-        Publish(e.Message);
+        Publish(e.Message, isLive: true);
     }
 
-    private void Publish(ObservedMessage message)
+    private void Publish(ObservedMessage message, bool isLive)
     {
-
         if (message.OcrStatus == OcrTextStatus.NoText)
         {
             // A sticker, image, emoji or voice note. A real turn with nothing to judge.
@@ -438,6 +458,8 @@ public sealed class LiveConversationWatcher : IDisposable
             return;
         }
 
+        _published.Add(message.Id);
+
         var chatRegion = _lastChatRegionBox is CapturePixelRect region
             ? region
             : message.BubbleRect;
@@ -450,7 +472,8 @@ public sealed class LiveConversationWatcher : IDisposable
                 message.NormalizedText,
                 built.SkippedUntrusted,
                 message.BubbleRect,
-                chatRegion));
+                chatRegion,
+                isLive));
     }
 
     /// <summary>

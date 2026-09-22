@@ -79,9 +79,9 @@
                     Click="OnSampleClick" />
             <ToggleButton x:Name="LiveToggle" Content="实时模式" Padding="14,6" Margin="8,0,0,0"
                           Checked="OnLiveChecked" Unchecked="OnLiveUnchecked" />
-            <Button x:Name="JudgeLatestButton" Content="判定最后一条" Padding="14,6" Margin="8,0,0,0"
-                    IsEnabled="False" Click="OnJudgeLatestClick"
-                    ToolTip="对屏幕上对方最后一条消息做判定，不用等新消息" />
+            <Button x:Name="JudgeScreenButton" Content="判定这一屏" Padding="14,6" Margin="8,0,0,0"
+                    IsEnabled="False" Click="OnJudgeScreenClick"
+                    ToolTip="对屏幕上对方已有的消息逐条判定，不用等新消息" />
           </StackPanel>
           <TextBlock x:Name="StatusText" Margin="0,8,0,0" FontSize="12" TextWrapping="Wrap"
                      Foreground="{StaticResource MutedText}" />
@@ -97,6 +97,22 @@
     </DockPanel>
 
     <DockPanel Grid.Column="2">
+      <DockPanel x:Name="JudgedPanel" DockPanel.Dock="Top" Margin="0,0,0,10" Visibility="Collapsed">
+        <TextBlock DockPanel.Dock="Top" Text="这一屏的判定（点一条看详情，浮层的大卡片也会移过去）"
+                   FontSize="11" Foreground="{StaticResource MutedText}" Margin="0,0,0,4" />
+        <ListBox x:Name="JudgedList" MaxHeight="170" SelectionChanged="OnJudgedSelectionChanged"
+                 Background="{StaticResource CardBackground}" BorderBrush="{StaticResource CardBorder}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.ItemTemplate>
+            <DataTemplate DataType="{x:Type local:JudgedMessage}">
+              <TextBlock Text="{Binding ListLabel}" FontSize="12" TextWrapping="NoWrap"
+                         TextTrimming="CharacterEllipsis" Margin="2,3,2,3"
+                         Foreground="{StaticResource PrimaryText}" />
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+
       <Border DockPanel.Dock="Top" Background="{StaticResource CardBackground}"
               BorderBrush="{StaticResource CardBorder}" BorderThickness="1" CornerRadius="8"
               Padding="14,10,14,10" Margin="0,0,0,10">

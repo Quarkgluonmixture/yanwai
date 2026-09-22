@@ -18,7 +18,9 @@ namespace Yanwai.Panel;
 /// </summary>
 public sealed class OverlayDemo : IDisposable
 {
-    private readonly WpfOverlayPresenter _overlay = new();
+    private const string DemoId = "demo";
+
+    private readonly OverlayBoard _overlay = new();
     private readonly Win32WeChatWindowTracker _tracker = new();
     private readonly Win32ScreenRegionCapture _capture = new();
     private readonly IChatRegionLocator _chatRegionLocator = new DarkThemeChatRegionLocator();
@@ -60,7 +62,8 @@ public sealed class OverlayDemo : IDisposable
             return $"这一帧没有对方的气泡（共检测到 {bubbles.Count} 个）。";
         }
 
-        _overlay.Show(
+        _overlay.Set(
+            DemoId,
             new OverlayContent(
                 "（演示锚点，未调用 Jev）",
                 "要认真回，已经有情绪了",
@@ -70,8 +73,12 @@ public sealed class OverlayDemo : IDisposable
                     new OverlayRow("话里有话", 0.87),
                     new OverlayRow("要一个具体答案", 0.56),
                 }),
-            target,
-            chatRegion.Bounds);
+            new OverlayChip("直接回答  67%", 2));
+        _overlay.Select(DemoId);
+        _overlay.UpdateAnchors(
+            new Dictionary<string, CapturePixelRect> { [DemoId] = target },
+            chatRegion.Bounds,
+            captureIsClean: true);
 
         _timer.Tick += OnTick;
         _timer.Start();
