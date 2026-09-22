@@ -15,7 +15,7 @@ Fork 自 `Wionerlol/wechat-jev-hud`，`upstream` remote 只读。
 
 ## 阶段 cursor
 
-**Phase 6 前半做完**（浮层锚定 + 跟随）。Phase 5（Jev 接入）与 Phase 1–4 已通过。
+**Phase 6 前半做完**（浮层锚定 + 跟随），滚动跟随与 fallback 防护已写、待真机验证。Phase 5（Jev 接入）与 Phase 1–4 已通过。
 每一阶段的验收条目在 `docs/ACCEPTANCE.md`，⛔ 别在这里复制。
 
 ## 跑起来
@@ -61,7 +61,7 @@ Fork 自 `Wionerlol/wechat-jev-hud`，`upstream` remote 只读。
 
 ## 未完的活
 
-见 `TODO.md`。最要紧的一条是浮层还不会跟随滚动。
+见 `TODO.md`。最要紧的一条是真机验证浮层跟随滚动（代码已写）。
 
 ## 链接
 
