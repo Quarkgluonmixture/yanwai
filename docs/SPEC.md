@@ -395,14 +395,25 @@ first, then fills chronological gaps from recent history. Maximum-cardinality
 alignment ties minimize geometry displacement, using a global Y translation/scale
 estimated from mutually unique strict visible anchors. Side/fingerprint/text remains
 the match predicate; Y alone is not identity. This
-allows repeated identical messages to receive distinct logical IDs. A known live-tail
-anchor distinguishes appended suffixes from history discovered by scrolling; when
-there is insufficient overlap, the V0 policy suppresses conservatively instead of
-claiming an old history item is newly received. If an all-identical sequence can be
-explained equally well as an older prefix discovered by scrolling or a new suffix, it
-is treated as history unless a distinct matched bubble anchors the edge or all previous
-occurrences remain stationary and consistently matched, identifying a visible appended
-suffix. Pixel-identical sampled scroll/append ambiguities are not fully observable.
+allows repeated identical messages to receive distinct logical IDs during history
+reconciliation, but does not authorize NEW.
+
+Before history reconciliation, `LiveEdgeAppendDetector` compares previous-visible and
+current complete crop fingerprints, side, shape and ordered geometry. Stable identity/
+layout, an established baseline and the known live tail are required. A stationary
+prefix plus a bottom suffix is an append even if every occurrence is equal. Consistent
+upward translation requires a unique ordered anchor; dropped prefixes must project
+outside the viewport or correspond to a top-clipped historical prefix (whose text
+remains protected by existing partial rules). Accepted occurrence bindings and the new suffix are reserved
+before history alignment/OCR reuse. Generic history matches cannot label a suffix NEW.
+An established empty baseline can accept its first complete message. Return to a known
+tail restores eligibility for the next frame only. This live-edge state is inferred
+from observed continuity, not a scrollbar or desktop coordinate. Current visible crop
+fingerprints are separate from the complete OCR-cache fingerprint so rerendering does
+not disarm future appends. Ambiguous all-equal moving views and partial suffixes are
+conservative history; pixel-identical sampled scroll/append
+ambiguities remain unobservable. `live_edge_append` diagnostics give the decision,
+previous retained start, new suffix start and translation without printing chat text.
 
 Bubble bounds touching/crossing the usable chat ROI top/bottom (scale-relative guard)
 are potentially partial. `IsFullyVisible` describes the current view and

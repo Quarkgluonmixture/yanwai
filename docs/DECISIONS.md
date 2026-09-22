@@ -430,7 +430,7 @@ anchor; finalizing an empty baseline clears provisional settling messages and ta
 This baseline-settling state is separate from conversation-identity evidence: it fixes
 render timing without changing the strong/weak identity hierarchy.
 
-**Scrolling policy**
+**Scrolling policy (historical; NEW authorization superseded by D-025)**
 
 The observer remembers the chronological live tail. Bubbles discovered before or away
 from that anchor are conservative history, while unmatched suffixes after the known
@@ -670,3 +670,37 @@ Completeness changes are Observer evidence safety, not OCR trust recalibration.
 
 Unified Paddle extraction, score semantics and trust calibration are unchanged.
 Real-machine repeat/switch/partial-scroll acceptance is still required; no Phase 5.
+
+---
+
+## D-025 — Live-edge append detection precedes history reconciliation
+
+The user requested a separate append detector after repeated-message real runs showed
+that generic alignment plus a matched-tail index could both miss legitimate equal
+appends and emit scrolled history. D-024's title identity and completeness behavior
+remain unchanged; its generic-match-based NEW authorization is superseded.
+
+`LiveEdgeAppendDetector` compares the immediately previous visible sequence with the
+current sequence before history reconciliation. An established baseline supplies an
+inferred live edge, not proof from a WeChat API/scrollbar. Stable identity/layout and
+the known previous tail are required. Full crop fingerprints plus side/shape match
+ordered occurrences. A stationary complete prefix reserves its unmatched bottom suffix
+as LiveNew, including all-equal sequences. A translated extension needs a mutually
+unique retained anchor and consistent upward translation; any dropped prefix must
+project outside the viewport or match an explicitly top-clipped historical prefix.
+Partial appended suffixes and ambiguous motion are suppressed. There are no
+text-specific cases or extra perceptual-match thresholds.
+
+Accepted occurrence bindings and the suffix are reserved before recent-history
+matching or OCR reuse can consume them. Generic history alignment no longer authorizes
+NEW. Returning to the known tail can re-arm the next observation, but cannot turn
+history in the returning frame into NEW. Baseline, pending identity and layout gates
+still suppress appends; the established empty-baseline path remains supported.
+Current visible crop fingerprints are separate from complete OCR-cache provenance,
+so a DPI rerender cannot permanently disarm subsequent appends or weaken cache safety.
+
+Pixel-identical all-equal full-viewport shifts remain ambiguous: without a unique
+anchor or stationary growth they are not claimed NEW. Reliable arbitrary bottom-edge
+knowledge would require additional evidence, not more LCS thresholds. The earlier
+bottom-clipped multiline completeness bug is still a separate manual blocker; this
+change does not claim to fix completeness, OCR, trust or conversation identity.

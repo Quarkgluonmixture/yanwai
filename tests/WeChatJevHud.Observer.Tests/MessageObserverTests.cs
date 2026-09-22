@@ -9,6 +9,113 @@ namespace WeChatJevHud.Observer.Tests;
 
 public sealed class MessageObserverTests
 {
+    [Fact]
+    public async Task Dpi_rerender_then_idle_then_append_uses_visible_fingerprint_not_ocr_cache_fingerprint()
+    {
+        var a = Bubble(12, 60, 120, MessageSide.Self);
+        var scaled = a with { Bounds = new(18, 90, 60, 36) };
+        var next = scaled with { Bounds = scaled.Bounds with { Y = 150 } };
+        var detector = new StubBubbleDetector([a], [scaled], [scaled, next]);
+        var ocr = new StubOcrEngine(Ocr("好"));
+        var observer = CreateObserver(detector, ocr, identityProvider: new StubConversationIdentityProvider(Identity(1)));
+        var baseline = await observer.ObserveAsync(Frame(10, [(a.Bounds, (byte)120)]), default);
+        var resized = Frame(300, 300, 10, [(scaled.Bounds, (byte)120)]);
+        await observer.ObserveAsync(resized, default);
+        await observer.ObserveAsync(resized, default);
+        await observer.ObserveAsync(resized, default);
+        Assert.Equal(1, ocr.Calls);
+        var result = await observer.ObserveAsync(Frame(300, 300, 10, [(scaled.Bounds, (byte)120), (next.Bounds, (byte)120)]), default);
+        Assert.Single(result.NewMessages);
+        Assert.Equal(baseline.MessagesObserved[0].Id, observer.State.VisibleMessages[0].LogicalMessageId);
+        Assert.Equal(1, result.Epoch.Id);
+        Assert.Equal(2, ocr.Calls);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task Partial_old_prefix_retains_id_without_ocr_while_complete_suffix_is_new(int inset)
+    {
+        var old = Bubble(12, 30, 60, MessageSide.Remote);
+        var anchor = Bubble(12, 70, 80, MessageSide.Remote);
+        var tail = Bubble(120, 110, 120, MessageSide.Self);
+        var clipped = old with { Bounds = new(12, 20 + inset, 40, 14 - inset) };
+        var movedAnchor = anchor with { Bounds = anchor.Bounds with { Y = 50 } };
+        var movedTail = tail with { Bounds = tail.Bounds with { Y = 90 } };
+        var appended = tail with { Bounds = tail.Bounds with { Y = 130 } };
+        var ocr = new StubOcrEngine(Ocr("old full text"), Ocr("A"), Ocr("好"), Ocr("好"));
+        var observer = CreateObserver(new StubBubbleDetector([old, anchor, tail], [clipped, movedAnchor, movedTail, appended]), ocr);
+        var baseline = await observer.ObserveAsync(Frame(10, [(old.Bounds, (byte)60), (anchor.Bounds, (byte)80), (tail.Bounds, (byte)120)]), default);
+        var result = await observer.ObserveAsync(Frame(10, [(clipped.Bounds, (byte)60), (movedAnchor.Bounds, (byte)80), (movedTail.Bounds, (byte)120), (appended.Bounds, (byte)120)]), default);
+        Assert.Single(result.NewMessages);
+        Assert.Equal(4, ocr.Calls);
+        Assert.Equal(baseline.MessagesObserved.Select(m => m.Id), observer.State.VisibleMessages.Take(3).Select(m => m.LogicalMessageId));
+        Assert.Equal("old full text", observer.State.Messages[0].RawText);
+        Assert.False(observer.State.Messages[0].IsFullyVisible);
+    }
+
+    [Fact]
+    public async Task History_tail_match_cannot_authorize_suffix_when_visible_prefix_disappears_without_motion()
+    {
+        var a = Bubble(12, 60, 80, MessageSide.Remote);
+        var tail = Bubble(120, 100, 120, MessageSide.Self);
+        var history = Bubble(12, 140, 170, MessageSide.Remote);
+        var observer = CreateObserver(new StubBubbleDetector([a, tail], [tail, history]),
+            new StubOcrEngine(Ocr("A"), Ocr("tail"), Ocr("old history")));
+        await observer.ObserveAsync(Frame(10, [(a.Bounds, (byte)80), (tail.Bounds, (byte)120)]), default);
+        var result = await observer.ObserveAsync(Frame(10, [(tail.Bounds, (byte)120), (history.Bounds, (byte)170)]), default);
+        Assert.Empty(result.NewMessages);
+        Assert.Equal(MessageObservationKind.History, Assert.Single(result.MessagesObserved).Origin);
+        Assert.False(result.LiveEdgeAppend!.IsAppend);
+    }
+
+    [Fact]
+    public async Task Live_append_translation_drops_only_offscreen_prefix_and_preserves_repeat_ids()
+    {
+        var old = Bubble(12, 30, 60, MessageSide.Remote);
+        var anchor = Bubble(12, 70, 80, MessageSide.Remote);
+        var first = Bubble(120, 110, 120, MessageSide.Self);
+        var second = Bubble(120, 150, 120, MessageSide.Self);
+        var movedAnchor = anchor with { Bounds = anchor.Bounds with { Y = 30 } };
+        var movedFirst = first with { Bounds = first.Bounds with { Y = 70 } };
+        var movedSecond = second with { Bounds = second.Bounds with { Y = 110 } };
+        var appended = second;
+        var ocr = new StubOcrEngine(Ocr("old"), Ocr("A"), Ocr("好"), Ocr("好"), Ocr("好"));
+        var observer = CreateObserver(new StubBubbleDetector([old, anchor, first, second], [movedAnchor, movedFirst, movedSecond, appended]), ocr);
+        var baseline = await observer.ObserveAsync(Frame(10, [(old.Bounds, (byte)60), (anchor.Bounds, (byte)80), (first.Bounds, (byte)120), (second.Bounds, (byte)120)]), default);
+        var result = await observer.ObserveAsync(Frame(10, [(movedAnchor.Bounds, (byte)80), (movedFirst.Bounds, (byte)120), (movedSecond.Bounds, (byte)120), (appended.Bounds, (byte)120)]), default);
+        Assert.Equal(baseline.MessagesObserved.Skip(1).Select(m => m.Id), observer.State.VisibleMessages.Take(3).Select(m => m.LogicalMessageId));
+        Assert.Equal("好", Assert.Single(result.NewMessages).NormalizedText);
+        Assert.Equal(5, ocr.Calls);
+        Assert.Equal("anchored_translated_suffix", result.LiveEdgeAppend!.Reason);
+    }
+
+    [Theory]
+    [InlineData(MessageSide.Self)]
+    [InlineData(MessageSide.Remote)]
+    public async Task Four_equal_occurrences_append_in_order_then_scroll_without_new_events(MessageSide side)
+    {
+        var bubbles = Enumerable.Range(0, 4).Select(i => Bubble(12, 40 + i * 35, 120, side)).ToArray();
+        var history = Bubble(12, 145, 170, side);
+        var scrolled = new[] { bubbles[1] with { Bounds = bubbles[0].Bounds }, bubbles[2] with { Bounds = bubbles[1].Bounds }, history };
+        var detector = new StubBubbleDetector([bubbles[0]], bubbles.Take(2).ToArray(), bubbles.Take(3).ToArray(), bubbles,
+            scrolled, bubbles);
+        var observer = CreateObserver(detector, new StubOcrEngine(Ocr("好")));
+        var ids = new List<string>();
+        for (var count = 1; count <= 4; count++)
+        {
+            var result = await observer.ObserveAsync(Frame(10, bubbles.Take(count).Select(b => (b.Bounds, (byte)120)).ToArray()), default);
+            if (count == 1) ids.Add(Assert.Single(result.MessagesObserved).Id);
+            else ids.Add(Assert.Single(result.NewMessages).Id);
+            Assert.Equal(ids, observer.State.VisibleMessages.Select(m => m.LogicalMessageId));
+        }
+        var away = await observer.ObserveAsync(Frame(10, scrolled.Select(b => (b.Bounds, b == history ? (byte)170 : (byte)120)).ToArray()), default);
+        Assert.Empty(away.NewMessages);
+        var back = await observer.ObserveAsync(Frame(10, bubbles.Select(b => (b.Bounds, (byte)120)).ToArray()), default);
+        Assert.Empty(back.NewMessages);
+        Assert.Equal(3, observer.Counters.MessagesEmitted);
+    }
+
     [Theory]
     [InlineData(MessageSide.Self)]
     [InlineData(MessageSide.Remote)]
@@ -645,7 +752,7 @@ public sealed class MessageObserverTests
         var liveMessage = Bubble(12, 140, 180, MessageSide.Remote);
         var detector = new StubBubbleDetector(
             [chatA], [], [], [], [firstHistory], [firstHistory, secondHistory], [firstHistory, secondHistory],
-            [secondHistory, liveMessage]);
+            [firstHistory, secondHistory, liveMessage]);
         var ocr = new StubOcrEngine(Ocr("chat-a"), Ocr("history-1"), Ocr("history-2"), Ocr("live"));
         var identity = new StubConversationIdentityProvider(
             Identity(1), Identity(2), Identity(2), Identity(2),
@@ -671,6 +778,7 @@ public sealed class MessageObserverTests
             Frame(
                 30,
                 [
+                    (firstHistory.Bounds, (byte)110),
                     (secondHistory.Bounds, (byte)140),
                     (liveMessage.Bounds, (byte)180),
                 ]),

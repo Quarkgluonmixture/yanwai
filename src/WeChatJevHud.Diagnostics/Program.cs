@@ -823,6 +823,8 @@ static async Task<int> ObserveWeChatAsync(string[] arguments)
                     var result = await observer.ObserveAsync(frame, cancellation.Token);
                     PrintIdentityObservation(result.Identity);
                     PrintBaselineObservation(result);
+                    if (result.FrameChanged && result.LiveEdgeAppend is { } append)
+                        Console.WriteLine($"live_edge_append decision={append.Reason} previous_start={append.PreviousStart} current_start={append.CurrentStart} suffix_start={append.SuffixStart} delta_y={append.DeltaY:F2}");
                     foreach (var match in result.OccurrenceMatches ?? [])
                     {
                         if (match.AmbiguousOccurrenceCount > 1)

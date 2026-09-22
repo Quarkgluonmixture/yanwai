@@ -43,6 +43,10 @@ public sealed class MessageObserver : IMessageObserver
     private int _emptyBaselineObservations;
     private bool _baselineEstablishedThisFrame;
     private string? _liveTailId;
+    private bool _atLiveEdge;
+    private string? _liveTailCropFingerprint;
+    private readonly LiveEdgeAppendDetector _appendDetector = new();
+    private LiveEdgeAppendDecision _appendDecision = LiveEdgeAppendDecision.Suppressed("unchanged");
     private PendingConversationSwitch? _pendingSwitch;
     private bool _layoutTransitionActive;
     private int _layoutStableObservationCount;
@@ -120,6 +124,7 @@ public sealed class MessageObserver : IMessageObserver
         _baselineEstablishedThisFrame = false;
         _occurrenceDiagnostics = [];
         _visibilityDiagnostics = [];
+        _appendDecision = LiveEdgeAppendDecision.Suppressed("unchanged");
 
         var previousChatRegion = _chatRegion;
         var dimensionsChanged = _frameWidth != frame.Width || _frameHeight != frame.Height;
@@ -245,11 +250,22 @@ public sealed class MessageObserver : IMessageObserver
         _visibilityDiagnostics = candidates.Select(c => new BubbleVisibilityDiagnostic(c.Bubble.Bounds, _chatRegion.Value, c.IsFullyVisible)).ToArray();
         _previousMatchRegion = previousChatRegion ?? _chatRegion.Value;
         var previousVisibleMessages = PreviousVisibleMessages();
+        _appendDecision = _appendDetector.Detect(
+            previousVisibleMessages.Select(m => new LiveEdgeBubble(m.Side, m.BubbleRect,
+                _visibleMessages.First(v => v.LogicalMessageId == m.Id).CropFingerprint, m.IsFullyVisible)).ToArray(),
+            candidates.Select(c => new LiveEdgeBubble(c.Bubble.Side, c.Bubble.Bounds, c.CropFingerprint, c.IsFullyVisible)).ToArray(),
+            _chatRegion.Value,
+            _atLiveEdge && (previousVisibleMessages.Count == 0
+                ? _messages.Count == 0
+                : previousVisibleMessages[^1].Id == _liveTailId),
+            _baselineEstablished && !identityMismatch && !layoutChanged &&
+            (!_layoutTransitionActive || _layoutStableObservationCount >= _options.LayoutStableObservations),
+            BoundaryMargin(_chatRegion.Value));
         EstimateTranslation(previousVisibleMessages, candidates);
         var canReconcileVisibleState = _baselineEstablished ||
                                        (_awaitingInitialSnapshot && _messages.Count > 0);
         var weakHistoryMatches = canReconcileVisibleState && !identityMismatch
-            ? AlignHistory(previousVisibleMessages, candidates, CandidateVisuallyMatches)
+            ? ReconcileAfterAppend(previousVisibleMessages, candidates, CandidateVisuallyMatches)
             : [];
         var strongVisualPreviousMatches = canReconcileVisibleState
             ? SequenceAlignment.Align(
@@ -278,7 +294,7 @@ public sealed class MessageObserver : IMessageObserver
             (strongVisualPreviousMatches.Count >= 3 &&
              strongVisualPreviousMatches.Count >= Math.Ceiling(Math.Max(previousVisibleMessages.Count, candidates.Length) * .8) &&
              strongVisualPreviousMatches.Select(m => previousVisibleMessages[m.Left].VisualFingerprint).Distinct().Count() >= 2);
-        if (hasStrongVisualContinuity && titleAllowsVisualReuse)
+        if (hasStrongVisualContinuity && titleAllowsVisualReuse && !_appendDecision.IsAppend)
         {
             foreach (var (messageIndex, candidateIndex) in strongVisualPreviousMatches)
             {
@@ -351,7 +367,7 @@ public sealed class MessageObserver : IMessageObserver
 
         reconcileTimer.Start();
         var matches = canReconcileVisibleState
-            ? AlignHistory(previousVisibleMessages, candidates, CandidateMatches)
+            ? ReconcileAfterAppend(previousVisibleMessages, candidates, CandidateMatches)
             : [];
         var trustedTextPreviousMatches = canReconcileVisibleState
             ? SequenceAlignment.Align(
@@ -496,15 +512,6 @@ public sealed class MessageObserver : IMessageObserver
         }
 
         var matchedByCandidate = matches.ToDictionary(match => match.Right, match => match.Left);
-        var liveTailCandidateIndex = matches
-            .Where(match => string.Equals(_messages[match.Left].Id, _liveTailId, StringComparison.Ordinal))
-            .Select(match => (int?)match.Right)
-            .SingleOrDefault();
-        var timelineWasEmpty = _messages.Count == 0;
-        var geometryAnchoredAppend = !layoutChanged && !identityMismatch && previousVisibleMessages.Count > 0 &&
-            previousVisibleMessages.All(previous => matches.Any(match => _messages[match.Left].Id == previous.Id &&
-                GeometryCost(previous, candidates[match.Right]) <= .15)) &&
-            Math.Abs(_deltaY) <= 1 && Math.Abs(_geometryScale - 1) <= .02;
         _occurrenceDiagnostics = matches.Where(match => previousVisibleIds.Contains(_messages[match.Left].Id))
             .Select(match => new OccurrenceMatchDiagnostic(_messages[match.Left].Id, _messages[match.Left].BubbleRect.Y,
                 candidates[match.Right].Bubble.Bounds.Y, _deltaY, GeometryCost(_messages[match.Left], candidates[match.Right]),
@@ -563,12 +570,9 @@ public sealed class MessageObserver : IMessageObserver
             }
 
             var candidate = candidates[candidateIndex];
-            var hasDistinctAnchor = matches.Any(match =>
-                !CandidateMatches(candidates[match.Right].Message!, candidate));
             var origin = !_baselineEstablished
                 ? MessageObservationKind.Bootstrap
-                : timelineWasEmpty ||
-                  (liveTailCandidateIndex is { } liveTail && candidateIndex > liveTail && (hasDistinctAnchor || geometryAnchoredAppend))
+                : _appendDecision.IsAppend && candidateIndex >= _appendDecision.SuffixStart
                     ? MessageObservationKind.LiveNew
                     : MessageObservationKind.History;
             if (!candidate.IsFullyVisible && origin == MessageObservationKind.LiveNew)
@@ -608,13 +612,25 @@ public sealed class MessageObserver : IMessageObserver
             _liveTailId = baselineTail.Id;
         }
 
+        // Returning to the known tail restores eligibility for the NEXT frame only.
+        // History reconciliation never retroactively authorizes a suffix as NEW.
+        var lastCandidate = candidates.LastOrDefault();
+        _atLiveEdge = _baselineEstablishedThisFrame || _appendDecision.IsAppend ||
+            (_atLiveEdge && _messages.Count == 0 && candidates.Length == 0) ||
+            (lastCandidate is { IsFullyVisible: true, Message: { } tail } && tail.Id == _liveTailId &&
+             (_liveTailCropFingerprint == lastCandidate.CropFingerprint ||
+              (layoutChanged && previousVisibleMessages.LastOrDefault() is { } previousTail &&
+               previousTail.Id == tail.Id && CandidateStronglyVisuallyMatches(previousTail, lastCandidate))));
+        if (_atLiveEdge) _liveTailCropFingerprint = lastCandidate?.CropFingerprint;
+
         _visibleMessages.Clear();
         _visibleMessages.AddRange(candidates.Select(candidate => new VisibleMessageSnapshot(
             candidate.Message!.Id,
             candidate.Message.Side,
             candidate.Bubble.Bounds,
             candidate.VisualFingerprint,
-            candidate.IsFullyVisible)));
+            candidate.IsFullyVisible,
+            candidate.CropFingerprint)));
         TrimRecentState();
         _lastFrameFingerprint = frameFingerprint;
         foreach (var message in observed)
@@ -716,6 +732,23 @@ public sealed class MessageObserver : IMessageObserver
         return result;
     }
 
+    private IReadOnlyList<(int Left, int Right)> ReconcileAfterAppend(
+        IReadOnlyList<ObservedMessage> previous,
+        IReadOnlyList<VisibleCandidate> candidates,
+        Func<ObservedMessage, VisibleCandidate, bool> predicate)
+    {
+        if (!_appendDecision.IsAppend) return AlignHistory(previous, candidates, predicate);
+        if (_appendDecision.SuffixStart == 0) return [];
+        // Reserve the new suffix before history can consume any equal occurrence.
+        // Every retained occurrence was already verified by the append detector.
+        var firstRetained = _messages.FindIndex(m => m.Id == previous[_appendDecision.PreviousStart].Id);
+        var prefix = SequenceAlignment.Align(firstRetained, _appendDecision.CurrentStart,
+            (m, c) => predicate(_messages[m], candidates[c]));
+        return prefix.Concat(Enumerable.Range(0, _appendDecision.SuffixStart - _appendDecision.CurrentStart)
+            .Select(i => (Left: _messages.FindIndex(m => m.Id == previous[_appendDecision.PreviousStart + i].Id), Right: _appendDecision.CurrentStart + i)))
+            .ToArray();
+    }
+
     private void StartEpoch(
         IConversationIdentityEvidence identity,
         DateTimeOffset observedAt,
@@ -737,6 +770,9 @@ public sealed class MessageObserver : IMessageObserver
         _initialSnapshotObservations = 0;
         _emptyBaselineObservations = 0;
         _liveTailId = null;
+        _atLiveEdge = false;
+        _liveTailCropFingerprint = null;
+        _appendDecision = LiveEdgeAppendDecision.Suppressed("epoch_baseline");
         _pendingSwitch = null;
         ConversationChanged?.Invoke(this, new ConversationChangedEventArgs(previous, _epoch));
     }
@@ -986,7 +1022,8 @@ public sealed class MessageObserver : IMessageObserver
                 _options.EmptyBaselineRequiredObservations,
                 _baselineEstablishedThisFrame),
             _occurrenceDiagnostics,
-            _visibilityDiagnostics);
+            _visibilityDiagnostics,
+            _appendDecision);
     }
 
     private sealed class VisibleCandidate(DetectedBubble bubble, string visualFingerprint, bool isFullyVisible, string cropFingerprint)

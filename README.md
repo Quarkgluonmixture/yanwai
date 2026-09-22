@@ -14,6 +14,9 @@ to check the immutable benchmark parity. Reports remain private under `.ocr-cach
 
 Observer regression fix (D-024) is pending real-device acceptance: geometry-aware
 occurrence matching, title-ink identity evidence and explicit partial-crop handling.
+NEW detection now uses a separate live-edge append detector before history matching
+(D-025); inspect `live_edge_append` decisions. Ambiguous moving all-equal views remain
+suppressed. The observed bottom-clipped-history bug remains a separate open gate.
 Extraction/trust calibration is unchanged. In `observe.ps1` diagnostics, inspect
 `occurrence`, `title_visual_distance`, and `bubble_visibility` records. Repeat Self
 and Remote equal-message appends, scroll away/back, A→B→A and clipped multiline history.

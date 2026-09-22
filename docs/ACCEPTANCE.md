@@ -436,6 +436,38 @@ Required manual retest (not yet PASS):
 Use Unified small-det + small-rec for already-isolated bubbles without regressing
 Phase 4 observation behavior. Trust calibration remains separate.
 
+### Explicit live-edge follow-up (D-025)
+
+- Post-D-024 manual run `observer-manual-retest-20260922-session2.log` still missed
+  two Self appends and emitted a clipped historical fragment as NEW. A later controlled
+  run `observer-manual-retest-20260922-183416.log` emitted exactly two Self and one
+  Remote `好` with distinct IDs; A→B→A advanced epochs 1→2→3, bootstrap-only;
+  subsequent resize/cross-DPI caused no extra epoch or NEW. The success does not erase
+  the earlier failures. Both logs remain private under `.ocr-cache`.
+- NEW authorization now runs in a dedicated live-edge append detector before history
+  reconciliation, reserving chronological occurrences and the appended suffix.
+  Generic LCS/history overlap cannot itself authorize NEW.
+- Deterministic coverage includes Self/Remote stationary repeats of lengths 1–8 and
+  suffixes 0–3; every two-symbol sequence through length six with either appended
+  symbol on either side (504 combinations); anchored translation, offscreen/top-clipped
+  old prefixes, scrolling, partial suffix rejection, and DPI→idle→append.
+- The old post-switch-settling append fixture made a visible prefix disappear without
+  motion. It now retains that prefix to test a real extension; a separate regression
+  explicitly rejects unexplained prefix disappearance, without weakening assertions.
+- Manual validation of this new detector remains pending. Repeat three Self and three
+  Remote equal appends, scrolling/return, resize/DPI followed by another append, and
+  A→B→A. All-equal moving views without an anchor remain ambiguous and suppressed.
+- Bottom-clipped-history completeness remains an open independent blocker. This change
+  does not alter OCR, Paddle, trust calibration, completeness or conversation identity.
+- Final validation: Windows format verification passed; full Windows build passed with
+  0 warnings/errors; all 209 .NET tests passed (143 Observer, 53 OCR, 6 Vision,
+  5 Windows, 2 Capture), no failures/skips. First full build was blocked by the prior
+  manual observer holding its DLL; after stopping that exact test process the build
+  and tests passed. Python/model extraction tests were not rerun: no worker/OCR code
+  changed. Two-axis review found and corrected top-partial and stale-DPI-fingerprint
+  issues; real-machine validation remains outstanding, including multi-frame layout
+  settling where reliable tail continuity is temporarily absent.
+
 ### Acceptance
 
 - [x] A configurable persistent worker loads and warms both models once and emits an

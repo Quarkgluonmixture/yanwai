@@ -138,7 +138,8 @@ public sealed record VisibleMessageSnapshot(
     MessageSide Side,
     CapturePixelRect BubbleRect,
     string VisualFingerprint,
-    bool IsFullyVisible = true);
+    bool IsFullyVisible = true,
+    string? CropFingerprint = null);
 
 public sealed record RecentConversationSnapshot(
     ConversationEpoch? Epoch,
@@ -178,7 +179,8 @@ public sealed record ObservationResult(
     ConversationIdentityObservation Identity,
     ConversationBaselineObservation Baseline,
     IReadOnlyList<OccurrenceMatchDiagnostic>? OccurrenceMatches = null,
-    IReadOnlyList<BubbleVisibilityDiagnostic>? BubbleVisibility = null);
+    IReadOnlyList<BubbleVisibilityDiagnostic>? BubbleVisibility = null,
+    LiveEdgeAppendDecision? LiveEdgeAppend = null);
 
 public sealed record OccurrenceMatchDiagnostic(string PreviousId, int PreviousY, int CandidateY,
     double EstimatedDeltaY, double MatchCost, int AmbiguousOccurrenceCount);
