@@ -27,6 +27,20 @@ public sealed class LiveMessageEventArgs : EventArgs
     public int SkippedUntrusted { get; }
 }
 
+public sealed class LiveSkippedEventArgs : EventArgs
+{
+    public LiveSkippedEventArgs(string label, string reason)
+    {
+        Label = label;
+        Reason = reason;
+    }
+
+    /// <summary>What to show in place of the message text.</summary>
+    public string Label { get; }
+
+    public string Reason { get; }
+}
+
 public sealed class LiveStatusEventArgs : EventArgs
 {
     public LiveStatusEventArgs(string message) => Message = message;
@@ -83,6 +97,13 @@ public sealed class LiveConversationWatcher : IDisposable
     }
 
     public event EventHandler<LiveMessageEventArgs>? RemoteMessageArrived;
+
+    /// <summary>
+    /// A new remote message arrived that cannot be judged. Raised so the panel can say
+    /// so where the user is looking, instead of leaving the previous judgment on screen
+    /// next to a message it was never about.
+    /// </summary>
+    public event EventHandler<LiveSkippedEventArgs>? RemoteMessageSkipped;
 
     public event EventHandler<LiveStatusEventArgs>? StatusChanged;
 
@@ -215,9 +236,24 @@ public sealed class LiveConversationWatcher : IDisposable
             return;
         }
 
+        if (message.OcrStatus == OcrTextStatus.NoText)
+        {
+            // A sticker, image, emoji or voice note. A real turn with nothing to judge.
+            RemoteMessageSkipped?.Invoke(
+                this,
+                new LiveSkippedEventArgs(
+                    TranscriptBuilder.TextlessPlaceholder,
+                    "这条没有文字，没有做判定。它已计入下一条的上下文。"));
+            return;
+        }
+
         if (!message.IsTrustedForSemantics)
         {
-            Report($"新消息的 OCR 不可信（{message.OcrStatus}），跳过判定。");
+            RemoteMessageSkipped?.Invoke(
+                this,
+                new LiveSkippedEventArgs(
+                    "[没认出来]",
+                    $"新消息的 OCR 不可信（{message.OcrStatus}），没有做判定。"));
             return;
         }
 
@@ -267,7 +303,8 @@ public sealed class LiveConversationWatcher : IDisposable
                 _ => TranscriptSpeaker.Other,
             },
             message.NormalizedText,
-            message.IsTrustedForSemantics);
+            message.IsTrustedForSemantics,
+            message.OcrStatus == OcrTextStatus.NoText);
 
     private void Report(string message) =>
         StatusChanged?.Invoke(this, new LiveStatusEventArgs(message));

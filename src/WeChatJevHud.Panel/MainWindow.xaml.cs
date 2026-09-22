@@ -85,6 +85,7 @@ public partial class MainWindow : Window
 
         _watcher.StatusChanged += OnWatcherStatus;
         _watcher.RemoteMessageArrived += OnRemoteMessageArrived;
+        _watcher.RemoteMessageSkipped += OnRemoteMessageSkipped;
         _watcher.Start();
 
         ConversationBox.IsReadOnly = true;
@@ -102,6 +103,7 @@ public partial class MainWindow : Window
         {
             watcher.StatusChanged -= OnWatcherStatus;
             watcher.RemoteMessageArrived -= OnRemoteMessageArrived;
+            watcher.RemoteMessageSkipped -= OnRemoteMessageSkipped;
             await watcher.StopAsync();
             watcher.Dispose();
         }
@@ -113,6 +115,17 @@ public partial class MainWindow : Window
 
     private void OnWatcherStatus(object? sender, LiveStatusEventArgs e) =>
         Dispatcher.InvokeAsync(() => StatusText.Text = e.Message);
+
+    private void OnRemoteMessageSkipped(object? sender, LiveSkippedEventArgs e) =>
+        Dispatcher.InvokeAsync(() =>
+        {
+            // Clear the old cards: leaving them up would attach the previous message's
+            // judgment to this one.
+            _inFlight?.Cancel();
+            CardList.ItemsSource = null;
+            TargetText.Text = e.Label;
+            StatusText.Text = e.Reason;
+        });
 
     private void OnRemoteMessageArrived(object? sender, LiveMessageEventArgs e) =>
         Dispatcher.InvokeAsync(() =>

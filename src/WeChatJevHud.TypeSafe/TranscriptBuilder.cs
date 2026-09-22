@@ -7,12 +7,18 @@ public enum TranscriptSpeaker
     Other,
 }
 
-/// <summary>One observed message, reduced to what a transcript needs.</summary>
+/// <summary>
+/// One observed message, reduced to what a transcript needs.
+/// <paramref name="IsTextless"/> marks a bubble OCR read as carrying no text at all —
+/// a sticker, image, emoji or voice note. That is a real turn and belongs in the
+/// context; it is not the same as text OCR failed to read, which does not.
+/// </summary>
 public sealed record TranscriptTurn(
     string Id,
     TranscriptSpeaker Speaker,
     string Text,
-    bool IsTrusted);
+    bool IsTrusted,
+    bool IsTextless = false);
 
 public sealed record TranscriptBuildResult(string Transcript, int SkippedUntrusted);
 
@@ -22,6 +28,10 @@ public sealed record TranscriptBuildResult(string Transcript, int SkippedUntrust
 /// </summary>
 public static class TranscriptBuilder
 {
+    /// <summary>How a bubble with no readable text is written into the context.</summary>
+    public const string TextlessPlaceholder = "[表情或图片]";
+
+
     /// <summary>
     /// Builds the context ending at <paramref name="targetId"/>. Turns after the target
     /// are dropped: from the judgment's point of view they have not happened yet, and
@@ -53,7 +63,10 @@ public static class TranscriptBuilder
             return null;
         }
 
-        if (!turns[targetIndex].IsTrusted)
+        // A textless target is a real message but there is nothing to judge, and text
+        // OCR could not read must not be judged. Both stop here; the caller decides how
+        // to say so.
+        if (!turns[targetIndex].IsTrusted || turns[targetIndex].IsTextless)
         {
             return null;
         }
@@ -65,7 +78,8 @@ public static class TranscriptBuilder
         for (var i = first; i <= targetIndex; i++)
         {
             var turn = turns[i];
-            if (!turn.IsTrusted || string.IsNullOrWhiteSpace(turn.Text))
+            var textless = turn.IsTextless;
+            if (!textless && (!turn.IsTrusted || string.IsNullOrWhiteSpace(turn.Text)))
             {
                 skipped++;
                 continue;
@@ -84,7 +98,7 @@ public static class TranscriptBuilder
                 continue;
             }
 
-            lines.Add($"{speaker}: {turn.Text}");
+            lines.Add($"{speaker}: {(textless ? TextlessPlaceholder : turn.Text)}");
         }
 
         return lines.Count == 0 ? null : new TranscriptBuildResult(string.Join("\n", lines), skipped);
