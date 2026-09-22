@@ -1,6 +1,16 @@
-# AGENTS.md — WeChat × Jev Conversation HUD
+# AGENTS.md — 言外 / Yanwai
 
 This repository is a Windows desktop companion/overlay project for WeChat.
+Forked from `Wionerlol/wechat-jev-hud`; `upstream` is configured read-only.
+
+**Read `docs/GOTCHAS.md` before touching code.** It is the live hazard list, not a
+history: every entry is something that still bites and that will not announce itself
+(no compiler error, no failing test, no visible symptom). When delegating to a
+subagent, copy the relevant numbered entries into its brief — a subagent does not
+inherit this session's context.
+
+Session handover lives in `CHECKPOINT.md` (start here), `TODO.md` and `LOG.md`.
+
 Before changing code, read these files in order:
 
 1. `docs/VISION.md`

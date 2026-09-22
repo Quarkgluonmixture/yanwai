@@ -1,7 +1,19 @@
-# WeChat × Jev Conversation HUD
+# 言外 / Yanwai
 
-This checkout implements accepted Phases 0–4. It does not implement Phase 5 Jev
-calls or the HUD overlay.
+盯住桌面微信的会话窗口，对方每来一条消息就用 TypeSafe Jev 判定几个窄问题
+（话里有话吗 / 她要什么 / 现在该怎么回 / 危险等级），结果显示在面板里，
+并把一张折叠卡片贴在那条气泡旁边。
+
+**只观察、只展示**——不注入微信、不 hook、不读本地加密数据库、不自动回复。
+
+> Fork 自 [Wionerlol/wechat-jev-hud](https://github.com/Wionerlol/wechat-jev-hud)。
+> Phase 0–4（窗口追踪 / 抓帧 / 气泡检测 / OCR / 消息观察器）来自上游；
+> Phase 5（Jev 接入）、判定面板与 Phase 6 前半（浮层锚定）是本仓库加的。
+> 上游未声明 license。
+
+**入口：`CHECKPOINT.md`。动手前先读 `docs/GOTCHAS.md`。**
+
+Phase 6 后半（滚动重对齐、捕获污染防护、debug 展开视图）尚未实现，见 `TODO.md`。
 
 ## What is available
 

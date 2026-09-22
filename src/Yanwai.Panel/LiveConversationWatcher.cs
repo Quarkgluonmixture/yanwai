@@ -213,7 +213,13 @@ public sealed class LiveConversationWatcher : IDisposable
                 {
                     if (!_wasUnavailable)
                     {
-                        Report("暂停：微信不可见或已最小化。");
+                        // A swallowed desktop-walk failure is the difference between
+                        // "WeChat is minimized" and "something is broken and we will
+                        // never find it". Say which.
+                        var failure = _tracker.EnumerationFailure;
+                        Report(failure is null
+                            ? "暂停：微信不可见或已最小化。"
+                            : $"暂停：找不到微信窗口，枚举时出错 — {failure}");
                         _wasUnavailable = true;
                     }
                 }

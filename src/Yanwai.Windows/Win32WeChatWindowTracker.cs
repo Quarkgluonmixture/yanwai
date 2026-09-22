@@ -13,6 +13,9 @@ public sealed class Win32WeChatWindowTracker : IWeChatWindowTracker
     private const string RenderClassPrefix = "MMUIRenderSubWindow";
     private readonly WeChatWindowSelector _selector;
 
+    private long _enumerationFailures;
+    private string? _firstEnumerationFailure;
+
     public Win32WeChatWindowTracker()
         : this(new WeChatWindowSelector())
     {
@@ -35,7 +38,17 @@ public sealed class Win32WeChatWindowTracker : IWeChatWindowTracker
         return selected is null ? null : CreateSnapshot(selected);
     }
 
-    private static IReadOnlyList<WindowCandidate> EnumerateCandidates()
+    /// <summary>
+    /// Non-null once a desktop walk has swallowed an unexpected exception. Callers
+    /// report it when no window was found: the alternative is a permanent, silent
+    /// "WeChat not found" with nothing to go on.
+    /// </summary>
+    public string? EnumerationFailure =>
+        _firstEnumerationFailure is null
+            ? null
+            : $"{_firstEnumerationFailure}（已发生 {Volatile.Read(ref _enumerationFailures)} 次）";
+
+    private IReadOnlyList<WindowCandidate> EnumerateCandidates()
     {
         var candidates = new List<WindowCandidate>();
         NativeMethods.EnumWindows((window, _) =>
@@ -48,9 +61,15 @@ public sealed class Win32WeChatWindowTracker : IWeChatWindowTracker
                     candidates.Add(candidate);
                 }
             }
-            catch (Exception)
+            catch (Exception exception)
             {
-                // A window can disappear while EnumWindows is walking the desktop.
+                // The one nameable cause — a window or its process vanishing mid-walk —
+                // is already handled inside TryCreateCandidate, so anything arriving
+                // here is unexpected. It still cannot be rethrown: an exception escaping
+                // a native EnumWindows callback tears the process down. So it is
+                // swallowed loudly instead of silently, and Locate() reports it.
+                Interlocked.Increment(ref _enumerationFailures);
+                _firstEnumerationFailure ??= $"{exception.GetType().Name}: {exception.Message}";
             }
 
             return true;
