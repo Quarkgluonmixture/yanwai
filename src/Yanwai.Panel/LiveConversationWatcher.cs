@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using Yanwai.Capture;
 using Yanwai.Core.Geometry;
 using Yanwai.Core.Messages;
@@ -128,6 +129,7 @@ public sealed class LiveConversationWatcher : IDisposable
     private Task? _loop;
     private bool _wasUnavailable;
     private bool _lastFrameWasFallback;
+    private volatile bool _judgeLatestRequested;
 
     public LiveConversationWatcher(string tessdataDirectory, int intervalMilliseconds = 250)
     {
@@ -179,6 +181,14 @@ public sealed class LiveConversationWatcher : IDisposable
     public event EventHandler<LiveAnchorsEventArgs>? AnchorsObserved;
 
     public bool IsRunning => _loop is { IsCompleted: false };
+
+    /// <summary>
+    /// Asks for a judgment of the last remote message already on screen. Messages that
+    /// were visible before live mode started are baseline and never fire on their own
+    /// (GOTCHAS 4); this is the explicit way to judge one. Served on the next frame, on
+    /// the loop thread, so the observer state is never read while it is being written.
+    /// </summary>
+    public void RequestJudgeLatest() => _judgeLatestRequested = true;
 
     /// <summary>
     /// Finds the pinned Tesseract models by walking up from the binary. Returns null
@@ -313,6 +323,12 @@ public sealed class LiveConversationWatcher : IDisposable
                         AnchorsObserved?.Invoke(
                             this,
                             new LiveAnchorsEventArgs(visible, chatRegion, captureIsClean: !isFallback));
+
+                        if (_judgeLatestRequested)
+                        {
+                            _judgeLatestRequested = false;
+                            JudgeLatestVisible();
+                        }
                     }
                 }
             }
@@ -347,13 +363,53 @@ public sealed class LiveConversationWatcher : IDisposable
             : $"检测到会话切换（{e.PreviousEpoch.Id} → {e.CurrentEpoch.Id}），重新建立基线。");
     }
 
+    private void JudgeLatestVisible()
+    {
+        var state = _observer.State;
+        var byId = state.Messages.ToDictionary(m => m.Id, StringComparer.Ordinal);
+        var remoteOnScreen = state.VisibleMessages
+            .Where(bubble => bubble.Side == MessageSide.Remote)
+            .OrderByDescending(bubble => bubble.BubbleRect.Y)
+            .Select(bubble => byId.GetValueOrDefault(bubble.LogicalMessageId))
+            .OfType<ObservedMessage>()
+            .ToList();
+        if (remoteOnScreen.Count == 0)
+        {
+            // Empty and "not ready yet" look the same from here; name both.
+            Report("屏幕上没找到对方的消息（或会话基线还没建立），没有判定。");
+            return;
+        }
+
+        // The newest bubble may be a sticker or a line OCR could not read. Judging it
+        // anyway would put a verdict on text we do not have; walk up to the newest one
+        // we can read, and say how many were passed over.
+        var skipped = remoteOnScreen.TakeWhile(m => !m.IsTrustedForSemantics).Count();
+        if (skipped == remoteOnScreen.Count)
+        {
+            Publish(remoteOnScreen[0]);
+            return;
+        }
+
+        if (skipped > 0)
+        {
+            Report($"对方最新的 {skipped} 条没有可用文字（表情 / 图片 / 没认出来），改判再往上那条。");
+        }
+
+        Publish(remoteOnScreen[skipped]);
+    }
+
     private void OnNewMessageObserved(object? sender, MessageObservedEventArgs e)
     {
-        var message = e.Message;
-        if (message.Side != MessageSide.Remote)
+        if (e.Message.Side != MessageSide.Remote)
         {
             return;
         }
+
+        Publish(e.Message);
+    }
+
+    private void Publish(ObservedMessage message)
+    {
 
         if (message.OcrStatus == OcrTextStatus.NoText)
         {
@@ -372,7 +428,7 @@ public sealed class LiveConversationWatcher : IDisposable
                 this,
                 new LiveSkippedEventArgs(
                     "[没认出来]",
-                    $"新消息的 OCR 不可信（{message.OcrStatus}），没有做判定。"));
+                    $"这条消息的 OCR 不可信（{message.OcrStatus}），没有做判定。"));
             return;
         }
 

@@ -43,3 +43,11 @@ append-only。标题行打标签，用 `grep -n '^## ' LOG.md` 出目录。
   抓的是「observer 不刷新框 / 离屏 id 还挂在表里」⇒ 浮层钉在旧位置。
 - 顺手发现 `.ocr-cache/tessdata` 不在了（改名搬目录时没跟着走，它是 gitignored），
   已用 `scripts/install-ocr-models.ps1` 按钉死的 revision 重下，大小与旧克隆一致。
+
+## [2026-09-23] 「判定最后一条」按钮：不用等新消息  #ship
+- 开启前就在屏幕上的消息是基线，按设计永不自动触发（坑 4）⇒ 加一个显式按钮来判定已有消息。
+  请求只置一个 volatile 标志，由 watcher 自己的循环线程在下一帧处理，不从 UI 线程读 observer 状态。
+- 第一版只盯最后一条，真机上最后一条恰好 OCR LowConfidence 被拒 ⇒ 改成从下往上找
+  **最近一条可信的对方消息**，并报出跳过了几条。浮层锚到被判的那条，不会贴错气泡。
+- 真机：判定 780 ms、5 项判定、1114 in / 253 out；那屏有 5 条因 OCR 不可信没进上下文
+  ——OCR 质量现在是判定的主要瓶颈（见 TODO 里 WeChatOCR 那条）。

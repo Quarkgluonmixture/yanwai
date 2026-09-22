@@ -107,9 +107,16 @@ public partial class MainWindow : Window
         _overlay = new WpfOverlayPresenter();
         _watcher.Start();
 
+        JudgeLatestButton.IsEnabled = true;
         ConversationBox.IsReadOnly = true;
         AnalyzeButton.IsEnabled = false;
         SampleButton.IsEnabled = false;
+    }
+
+    private void OnJudgeLatestClick(object sender, RoutedEventArgs e)
+    {
+        _watcher?.RequestJudgeLatest();
+        StatusText.Text = "取屏幕上对方的最后一条…（切回微信后浮层才会显示）";
     }
 
     private void OnLiveUnchecked(object sender, RoutedEventArgs e) => _ = StopLiveAsync();
@@ -135,6 +142,7 @@ public partial class MainWindow : Window
         _pendingMessageId = null;
         _latestAnchors = null;
 
+        JudgeLatestButton.IsEnabled = false;
         ConversationBox.IsReadOnly = false;
         AnalyzeButton.IsEnabled = _client is not null;
         SampleButton.IsEnabled = true;
