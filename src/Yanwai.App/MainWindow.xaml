@@ -1,0 +1,48 @@
+<Window x:Class="Yanwai.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="WeChat Jev HUD — Phase 1 Diagnostics"
+        Width="1050"
+        Height="760"
+        MinWidth="760"
+        MinHeight="520"
+        Background="#17191D"
+        Foreground="#F1F3F5">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Orientation="Horizontal">
+            <Button Padding="14,7" Margin="0,0,8,0" Click="RefreshClick">Refresh window</Button>
+            <Button Padding="14,7" Click="CaptureClick">Save one debug frame</Button>
+        </StackPanel>
+
+        <TextBox x:Name="WindowDetails"
+                 Grid.Row="1"
+                 Margin="0,12,0,12"
+                 Padding="10"
+                 IsReadOnly="True"
+                 AcceptsReturn="True"
+                 FontFamily="Consolas"
+                 FontSize="13"
+                 Background="#22252B"
+                 Foreground="#F1F3F5"
+                 BorderBrush="#3B4048"
+                 MinHeight="190"
+                 VerticalScrollBarVisibility="Auto" />
+
+        <Border Grid.Row="2" Background="#0E1013" BorderBrush="#3B4048" BorderThickness="1">
+            <Image x:Name="CapturePreview" Stretch="Uniform" />
+        </Border>
+
+        <TextBlock x:Name="StatusText"
+                   Grid.Row="3"
+                   Margin="0,10,0,0"
+                   TextWrapping="Wrap"
+                   Foreground="#AAB2BE" />
+    </Grid>
+</Window>

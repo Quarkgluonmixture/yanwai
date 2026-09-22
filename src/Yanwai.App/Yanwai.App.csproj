@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Yanwai.Windows\Yanwai.Windows.csproj" />
+    <ProjectReference Include="..\Yanwai.Capture\Yanwai.Capture.csproj" />
+  </ItemGroup>
+</Project>

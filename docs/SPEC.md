@@ -64,20 +64,20 @@ A suggested .NET solution layout:
 
 ```text
 src/
-  WeChatJevHud.App/              # WPF host, composition root
-  WeChatJevHud.Core/             # domain models and orchestration
-  WeChatJevHud.Windows/          # Win32, monitor, DPI, window tracking
-  WeChatJevHud.Capture/          # window/client frame capture
-  WeChatJevHud.Vision/           # ROI, frame diff, bubble detection
-  WeChatJevHud.Ocr/              # OCR abstraction + implementation(s)
-  WeChatJevHud.Observer/         # change detection, reconciliation, recent state
-  WeChatJevHud.TypeSafe/         # Jev client and typed judgment mapping
-  WeChatJevHud.Overlay/          # overlay layout/anchoring
+  Yanwai.App/              # WPF host, composition root
+  Yanwai.Core/             # domain models and orchestration
+  Yanwai.Windows/          # Win32, monitor, DPI, window tracking
+  Yanwai.Capture/          # window/client frame capture
+  Yanwai.Vision/           # ROI, frame diff, bubble detection
+  Yanwai.Ocr/              # OCR abstraction + implementation(s)
+  Yanwai.Observer/         # change detection, reconciliation, recent state
+  Yanwai.TypeSafe/         # Jev client and typed judgment mapping
+  Yanwai.Overlay/          # overlay layout/anchoring
 tests/
-  WeChatJevHud.Core.Tests/
-  WeChatJevHud.Windows.Tests/
-  WeChatJevHud.Vision.Tests/
-  WeChatJevHud.TypeSafe.Tests/
+  Yanwai.Core.Tests/
+  Yanwai.Windows.Tests/
+  Yanwai.Vision.Tests/
+  Yanwai.TypeSafe.Tests/
 fixtures/
   screenshots/
 ```

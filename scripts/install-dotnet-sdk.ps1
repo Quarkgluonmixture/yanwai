@@ -2,7 +2,7 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$installDirectory = Join-Path $env:LOCALAPPDATA 'WeChatJevHud\dotnet'
+$installDirectory = Join-Path $env:LOCALAPPDATA 'Yanwai\dotnet'
 $installer = Join-Path $env:TEMP 'dotnet-install.ps1'
 
 Invoke-WebRequest -UseBasicParsing 'https://dot.net/v1/dotnet-install.ps1' -OutFile $installer

@@ -5,12 +5,12 @@ calls or the HUD overlay.
 
 ## What is available
 
-- `WeChatJevHud.App`: WPF diagnostic UI that refreshes HWND/process/title/class, desktop bounds, monitor, and DPI every 500 ms. Its button saves and previews one frame only when explicitly pressed.
-- `WeChatJevHud.Diagnostics`: command-line window diagnostics, explicit capture, offline fixture detection, and capture-plus-detection.
-- `WeChatJevHud.Vision`: capture-relative chat ROI location, `Remote`/`Self`/`Unknown` text-bubble detection, heuristic detection scores, timing, and annotated debug rendering.
+- `Yanwai.App`: WPF diagnostic UI that refreshes HWND/process/title/class, desktop bounds, monitor, and DPI every 500 ms. Its button saves and previews one frame only when explicitly pressed.
+- `Yanwai.Diagnostics`: command-line window diagnostics, explicit capture, offline fixture detection, and capture-plus-detection.
+- `Yanwai.Vision`: capture-relative chat ROI location, `Remote`/`Self`/`Unknown` text-bubble detection, heuristic detection scores, timing, and annotated debug rendering.
 - Replaceable interfaces for window tracking, capture, bubble detection, OCR, Jev, and overlay rendering.
-- `WeChatJevHud.Ocr.Windows` and `WeChatJevHud.Ocr.Tesseract`: crop-only Simplified Chinese/English OCR adapters, explicit nullable `OcrConfidence`, low-confidence status, preprocessing variants, and an adaptive candidate policy.
-- `WeChatJevHud.Observer`: in-memory change detection, conversation epochs, ordered
+- `Yanwai.Ocr.Windows` and `Yanwai.Ocr.Tesseract`: crop-only Simplified Chinese/English OCR adapters, explicit nullable `OcrConfidence`, low-confidence status, preprocessing variants, and an adaptive candidate policy.
+- `Yanwai.Observer`: in-memory change detection, conversation epochs, ordered
   visible-message reconciliation, duplicate suppression, and Bootstrap/History/LiveNew
   observation state.
 - Per-Monitor DPI Awareness V2 manifests for both runnable programs.

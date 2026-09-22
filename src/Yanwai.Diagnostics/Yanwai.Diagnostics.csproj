@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <ApplicationManifest>..\Yanwai.App\app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Yanwai.Windows\Yanwai.Windows.csproj" />
+    <ProjectReference Include="..\Yanwai.Capture\Yanwai.Capture.csproj" />
+    <ProjectReference Include="..\Yanwai.Vision\Yanwai.Vision.csproj" />
+    <ProjectReference Include="..\Yanwai.Ocr\Yanwai.Ocr.csproj" />
+    <ProjectReference Include="..\Yanwai.Ocr.Windows\Yanwai.Ocr.Windows.csproj" />
+    <ProjectReference Include="..\Yanwai.Ocr.Tesseract\Yanwai.Ocr.Tesseract.csproj" />
+    <ProjectReference Include="..\Yanwai.Observer\Yanwai.Observer.csproj" />
+  </ItemGroup>
+</Project>
