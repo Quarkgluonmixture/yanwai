@@ -36,6 +36,53 @@ public static partial class OcrTextNormalizer
         return RemoveCjkBackslashArtifacts(output.ToString()).Trim(' ', '|', '¦');
     }
 
+    /// <summary>
+    /// A key for asking "did two engines read the same thing": full-width folded to
+    /// half-width, whitespace dropped, case folded. Engines disagree on those freely
+    /// while agreeing on the text; nothing else is folded.
+    /// </summary>
+    public static string ComparisonKey(string? text)
+    {
+        var folded = (text ?? string.Empty).Normalize(NormalizationForm.FormKC);
+        var output = new StringBuilder(folded.Length);
+        foreach (var character in folded)
+        {
+            if (!char.IsWhiteSpace(character))
+            {
+                output.Append(char.ToLowerInvariant(character));
+            }
+        }
+
+        return output.ToString();
+    }
+
+    /// <summary>Character edit distance (insert, delete, substitute all cost 1).</summary>
+    public static int EditDistance(string a, string b)
+    {
+        var previous = new int[b.Length + 1];
+        var current = new int[b.Length + 1];
+        for (var column = 0; column <= b.Length; column++)
+        {
+            previous[column] = column;
+        }
+
+        for (var row = 1; row <= a.Length; row++)
+        {
+            current[0] = row;
+            for (var column = 1; column <= b.Length; column++)
+            {
+                var substitutionCost = a[row - 1] == b[column - 1] ? 0 : 1;
+                current[column] = Math.Min(
+                    Math.Min(current[column - 1] + 1, previous[column] + 1),
+                    previous[column - 1] + substitutionCost);
+            }
+
+            (previous, current) = (current, previous);
+        }
+
+        return previous[b.Length];
+    }
+
     private static string RemoveCjkBackslashArtifacts(string value)
     {
         var output = new StringBuilder(value.Length);

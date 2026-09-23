@@ -12,7 +12,7 @@
     <ProjectReference Include="..\Yanwai.Vision\Yanwai.Vision.csproj" />
     <ProjectReference Include="..\Yanwai.Ocr\Yanwai.Ocr.csproj" />
     <ProjectReference Include="..\Yanwai.Ocr.Windows\Yanwai.Ocr.Windows.csproj" />
-    <ProjectReference Include="..\Yanwai.Ocr.Tesseract\Yanwai.Ocr.Tesseract.csproj" />
+    <ProjectReference Include="..\Yanwai.Ocr.Paddle\Yanwai.Ocr.Paddle.csproj" />
     <ProjectReference Include="..\Yanwai.Observer\Yanwai.Observer.csproj" />
     <ProjectReference Include="..\Yanwai.Overlay\Yanwai.Overlay.csproj" />
   </ItemGroup>

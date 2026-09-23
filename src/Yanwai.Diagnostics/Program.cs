@@ -56,6 +56,11 @@ if (detectIndex >= 0)
     }
 }
 
+if (FindOption(args, "--ocr-compare-live") >= 0)
+{
+    return await CompareLiveOcrAsync();
+}
+
 if (FindOption(args, "--observe") >= 0)
 {
     try
@@ -207,14 +212,29 @@ static async Task<int> EvaluateOcrAsync(
         [tesseractRaw, tesseractUpscaled],
         windowsUpscaled,
         confidenceThreshold: trustedTesseractThreshold);
-    IOcrEngine[] engines =
-    [
+    var engines = new List<IOcrEngine>
+    {
         windowsRaw,
         windowsUpscaled,
         tesseractRaw,
         tesseractUpscaled,
         adaptive,
-    ];
+    };
+
+    // The live composition, when its model is installed. Missing is reported, not
+    // silently dropped from the table.
+    using var liveOcr = LiveOcr.FindModelDirectory(Environment.CurrentDirectory) is { } paddleModel
+        ? LiveOcr.Create(paddleModel)
+        : null;
+    if (liveOcr is null)
+    {
+        Console.Error.WriteLine("PP-OCR model not installed; the live OCR rows are missing from this report.");
+    }
+    else
+    {
+        engines.Add(new PaddleOnnxOcrEngine(LiveOcr.FindModelDirectory(Environment.CurrentDirectory)!));
+        engines.Add(liveOcr.Engine);
+    }
 
     var report = new StringBuilder();
     foreach (var engine in engines)
@@ -262,33 +282,67 @@ static async Task<int> EvaluateOcrAsync(
     }
 }
 
+// One frame of the real WeChat, every bubble read by PP-OCR and by Windows OCR, and
+// the cross-checked verdict. Prints lengths and where the readings differ, never the
+// text itself: this runs on private conversations.
+static async Task<int> CompareLiveOcrAsync()
+{
+    var model = LiveOcr.FindModelDirectory(Environment.CurrentDirectory)
+        ?? throw new InvalidOperationException("PP-OCR model not installed. Run scripts\\install-ocr-models.ps1.");
+    var snapshot = new Win32WeChatWindowTracker().Locate();
+    if (snapshot is null || !snapshot.IsVisible || snapshot.IsMinimized)
+    {
+        Console.Error.WriteLine("WeChat is not visible.");
+        return 3;
+    }
+
+    var frame = new Win32ScreenRegionCapture().Capture(snapshot);
+    var region = new DarkThemeChatRegionLocator().Locate(frame).Bounds;
+    var bubbles = new DarkThemeBubbleDetector().Detect(frame, region).OrderBy(bubble => bubble.Bounds.Y).ToList();
+
+    using var paddle = new PaddleOnnxOcrEngine(model);
+    var windowsBubble = new WindowsMediaOcrEngine("zh-Hans-CN", OcrImagePreparation.Upscaled);
+    var windows = new LineWiseOcrEngine(windowsBubble);
+    using var live = LiveOcr.Create(model);
+
+    Console.WriteLine($"capture={frame.Method} bubbles={bubbles.Count}");
+    Console.WriteLine("side | lines | paddle_chars | paddle_conf | win_bubble_chars | win_lines_chars | distance | differing (Han/punct/other) | live_status");
+    foreach (var bubble in bubbles)
+    {
+        var crop = new ImageCrop(frame, bubble.Bounds);
+        var lines = TextLineSplitter.Split(ImageCropExtractor.Extract(crop)).Count;
+        var p = await paddle.RecognizeAsync(crop, CancellationToken.None);
+        var w = await windows.RecognizeAsync(crop, CancellationToken.None);
+        var wb = await windowsBubble.RecognizeAsync(crop, CancellationToken.None);
+        var verdict = await live.Engine.RecognizeAsync(crop, CancellationToken.None);
+        var pk = OcrTextNormalizer.ComparisonKey(p.Text);
+        var wk = OcrTextNormalizer.ComparisonKey(w.Text);
+        var differing = pk.Except(wk).Concat(wk.Except(pk)).ToList();
+        var han = differing.Count(c => c is >= '\u4E00' and <= '\u9FFF');
+        var punctuation = differing.Count(char.IsPunctuation);
+        Console.WriteLine(
+            $"{bubble.Side} | {lines} | {pk.Length} | {p.OcrConfidence?.ToString("F2") ?? "n/a"} | {OcrTextNormalizer.ComparisonKey(wb.Text).Length} | {wk.Length} | " +
+            $"{OcrTextNormalizer.EditDistance(pk, wk)} | {han}/{punctuation}/{differing.Count - han - punctuation} | {verdict.Status}");
+    }
+
+    return 0;
+}
+
 static async Task<int> ObserveWeChatAsync(string[] arguments)
 {
     var intervalMilliseconds = PositiveIntOption(arguments, "--interval-ms", 200)!.Value;
     var durationSeconds = PositiveIntOption(arguments, "--observe-seconds", null);
     var debugText = FindOption(arguments, "--debug-text") >= 0;
-    var tessdata = Path.GetFullPath(
-        OptionValue(arguments, "--tessdata")
-        ?? Path.Combine(Environment.CurrentDirectory, ".ocr-cache", "tessdata"));
-    if (!Directory.Exists(tessdata))
-    {
-        throw new InvalidOperationException(
-            $"Tesseract data was not found at {tessdata}. Complete the Phase 3 OCR setup or pass --tessdata.");
-    }
-
-    using var tesseractRaw = new TesseractOcrEngine(tessdata, lowConfidenceThreshold: 0.90);
-    using var tesseractUpscaled = new TesseractOcrEngine(
-        tessdata,
-        lowConfidenceThreshold: 0.90,
-        preparation: OcrImagePreparation.Upscaled);
-    var adaptive = new AdaptiveOcrEngine(
-        [tesseractRaw, tesseractUpscaled],
-        new WindowsMediaOcrEngine("zh-Hans-CN", OcrImagePreparation.Upscaled),
-        confidenceThreshold: 0.90);
+    // The same OCR the panel runs, so what this prints is what live mode sees.
+    var paddleModel = OptionValue(arguments, "--paddle-model")
+        ?? LiveOcr.FindModelDirectory(Environment.CurrentDirectory)
+        ?? throw new InvalidOperationException(
+            "PP-OCR model was not found under .ocr-cache\\paddle. Run scripts\\install-ocr-models.ps1 or pass --paddle-model.");
+    using var liveOcr = LiveOcr.Create(Path.GetFullPath(paddleModel));
     IMessageObserver observer = new MessageObserver(
         new DarkThemeChatRegionLocator(),
         new DarkThemeBubbleDetector(),
-        adaptive,
+        liveOcr.Engine,
         new ChatRoiChangeDetector(),
         new VisualConversationIdentityProvider());
 
