@@ -15,6 +15,8 @@ public sealed class JudgedMessage
         IReadOnlyList<JevQuestion> questions,
         JevResult result,
         int skippedUntrusted,
+        bool textVerified,
+        int unverifiedInContext,
         string? danger,
         int? dangerLevel,
         string? advice,
@@ -25,6 +27,8 @@ public sealed class JudgedMessage
         Questions = questions;
         Result = result;
         SkippedUntrusted = skippedUntrusted;
+        TextVerified = textVerified;
+        UnverifiedInContext = unverifiedInContext;
         Danger = danger;
         DangerLevel = dangerLevel;
         Advice = advice;
@@ -41,6 +45,11 @@ public sealed class JudgedMessage
 
     public int SkippedUntrusted { get; }
 
+    /// <summary>False when the OCR cross-check could not confirm the text that was judged.</summary>
+    public bool TextVerified { get; }
+
+    public int UnverifiedInContext { get; }
+
     /// <summary>The danger level's wording, or null when that answer did not come back.</summary>
     public string? Danger { get; }
 
@@ -56,14 +65,17 @@ public sealed class JudgedMessage
     public string AdviceText => Advice is null ? "—" : $"{Advice}  {AdviceProbability * 100:N0}%";
 
     /// <summary>What the panel's list shows for this message.</summary>
-    public string ListLabel => $"{Text}\n{(HasHeadline ? $"{Danger} · {AdviceText}" : "判定不完整")}";
+    public string ListLabel =>
+        $"{(TextVerified ? "" : "[OCR 未核实] ")}{Text}\n{(HasHeadline ? $"{Danger} · {AdviceText}" : "判定不完整")}";
 
     public static JudgedMessage From(
         string id,
         string text,
         IReadOnlyList<JevQuestion> questions,
         JevResult result,
-        int skippedUntrusted)
+        int skippedUntrusted,
+        bool textVerified = true,
+        int unverifiedInContext = 0)
     {
         string? danger = null;
         int? dangerLevel = null;
@@ -87,7 +99,8 @@ public sealed class JudgedMessage
         }
 
         return new JudgedMessage(
-            id, text, questions, result, skippedUntrusted, danger, dangerLevel, advice, adviceProbability);
+            id, text, questions, result, skippedUntrusted, textVerified, unverifiedInContext,
+            danger, dangerLevel, advice, adviceProbability);
     }
 
     public IReadOnlyList<JudgmentCard> Cards()
@@ -125,6 +138,12 @@ public sealed class JudgedMessage
     public OverlayContent OverlayCard()
     {
         var sections = new List<OverlaySection>();
+        if (!TextVerified)
+        {
+            // The judgment is about this reading; if it is wrong, the user must be able to see that.
+            sections.Add(new OverlaySection($"OCR 未核实，判的是：「{Text}」", []));
+        }
+
         foreach (var question in Questions)
         {
             if (!CardKeys.Contains(question.Key) || !Result.Answers.TryGetValue(question.Key, out var answer))

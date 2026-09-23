@@ -21,8 +21,12 @@ public sealed class LiveMessageEventArgs : EventArgs
         int skippedUntrusted,
         CapturePixelRect anchor,
         CapturePixelRect chatRegion,
-        bool isLive)
+        bool isLive,
+        bool targetVerified,
+        int unverifiedInContext)
     {
+        TargetVerified = targetVerified;
+        UnverifiedInContext = unverifiedInContext;
         MessageId = messageId;
         IsLive = isLive;
         Transcript = transcript;
@@ -57,6 +61,15 @@ public sealed class LiveMessageEventArgs : EventArgs
 
     /// <summary>How many recent messages were left out because OCR did not trust them.</summary>
     public int SkippedUntrusted { get; }
+
+    /// <summary>
+    /// False when the two OCR engines disagreed on the message being judged. The
+    /// judgment still runs, and the text it ran on must be shown next to it.
+    /// </summary>
+    public bool TargetVerified { get; }
+
+    /// <summary>How many context lines (target included) are unverified OCR readings.</summary>
+    public int UnverifiedInContext { get; }
 }
 
 public sealed class LiveAnchorsEventArgs : EventArgs
@@ -127,8 +140,7 @@ public sealed class LiveConversationWatcher : IDisposable
     private const int MaxOnScreenJudgments = 8;
 
     private readonly int _intervalMilliseconds;
-    private readonly TesseractOcrEngine _tesseractRaw;
-    private readonly TesseractOcrEngine _tesseractUpscaled;
+    private readonly LiveOcr _ocr;
     private readonly IMessageObserver _observer;
     private readonly Win32WeChatWindowTracker _tracker = new();
     private readonly Win32ScreenRegionCapture _capture = new();
@@ -145,25 +157,15 @@ public sealed class LiveConversationWatcher : IDisposable
     /// <summary>Ids already handed to the panel. Loop thread only.</summary>
     private readonly HashSet<string> _published = new(StringComparer.Ordinal);
 
-    public LiveConversationWatcher(string tessdataDirectory, int intervalMilliseconds = 250)
+    public LiveConversationWatcher(string paddleModelDirectory, int intervalMilliseconds = 250)
     {
         _intervalMilliseconds = intervalMilliseconds;
-
-        _tesseractRaw = new TesseractOcrEngine(tessdataDirectory, lowConfidenceThreshold: 0.90);
-        _tesseractUpscaled = new TesseractOcrEngine(
-            tessdataDirectory,
-            lowConfidenceThreshold: 0.90,
-            preparation: OcrImagePreparation.Upscaled);
-
-        var adaptive = new AdaptiveOcrEngine(
-            [_tesseractRaw, _tesseractUpscaled],
-            new WindowsMediaOcrEngine("zh-Hans-CN", OcrImagePreparation.Upscaled),
-            confidenceThreshold: 0.90);
+        _ocr = LiveOcr.Create(paddleModelDirectory);
 
         _observer = new MessageObserver(
             new DarkThemeChatRegionLocator(),
             new DarkThemeBubbleDetector(),
-            adaptive,
+            _ocr.Engine,
             new ChatRoiChangeDetector(),
             new VisualConversationIdentityProvider());
 
@@ -208,27 +210,8 @@ public sealed class LiveConversationWatcher : IDisposable
     /// <summary>The observer started a new conversation; earlier message ids are gone.</summary>
     public event EventHandler? ConversationReset;
 
-    /// <summary>
-    /// Finds the pinned Tesseract models by walking up from the binary. Returns null
-    /// rather than a guessed path so the caller can say what is missing.
-    /// </summary>
-    public static string? FindTessdata()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            var candidate = Path.Combine(directory.FullName, ".ocr-cache", "tessdata");
-            if (Directory.Exists(candidate)
-                && File.Exists(Path.Combine(candidate, "chi_sim.traineddata")))
-            {
-                return candidate;
-            }
-
-            directory = directory.Parent;
-        }
-
-        return null;
-    }
+    /// <summary>The pinned PP-OCR model near the binary, or null when it is not installed.</summary>
+    public static string? FindOcrModel() => LiveOcr.FindModelDirectory(AppContext.BaseDirectory);
 
     public void Start()
     {
@@ -397,19 +380,19 @@ public sealed class LiveConversationWatcher : IDisposable
             return;
         }
 
-        // Stickers and lines OCR could not read are passed over: a verdict on text we
-        // do not have would look exactly like a verdict on text we do. They are marked
-        // as handled too, so they are counted once instead of every frame.
-        var readable = fresh.Where(m => m.IsTrustedForSemantics).Take(MaxOnScreenJudgments).ToList();
-        var unreadable = fresh.Count(m => !m.IsTrustedForSemantics);
-        foreach (var message in fresh.Where(m => !m.IsTrustedForSemantics))
+        // Bubbles with no text at all (stickers, images) are passed over and marked as
+        // handled, so they are counted once instead of every frame. Unverified readings
+        // are judged and labelled as such downstream.
+        var readable = fresh.Where(HasReadableText).Take(MaxOnScreenJudgments).ToList();
+        var textless = fresh.Count(m => !HasReadableText(m));
+        foreach (var message in fresh.Where(m => !HasReadableText(m)))
         {
             _published.Add(message.Id);
         }
 
-        if (unreadable > 0)
+        if (textless > 0)
         {
-            Report($"屏幕上又有对方 {fresh.Count} 条，{unreadable} 条没有可用文字（表情 / 图片 / 没认出来），跳过。");
+            Report($"屏幕上又有对方 {fresh.Count} 条，{textless} 条没有文字（表情 / 图片），跳过。");
         }
 
         // Newest first, so the one most likely to need an answer comes back first.
@@ -442,13 +425,13 @@ public sealed class LiveConversationWatcher : IDisposable
             return;
         }
 
-        if (!message.IsTrustedForSemantics)
+        if (!HasReadableText(message))
         {
             RemoteMessageSkipped?.Invoke(
                 this,
                 new LiveSkippedEventArgs(
                     "[没认出来]",
-                    $"这条消息的 OCR 不可信（{message.OcrStatus}），没有做判定。"));
+                    $"这条消息没读出文字（{message.OcrStatus}），没有做判定。"));
             return;
         }
 
@@ -473,7 +456,9 @@ public sealed class LiveConversationWatcher : IDisposable
                 built.SkippedUntrusted,
                 message.BubbleRect,
                 chatRegion,
-                isLive));
+                isLive,
+                message.IsTrustedForSemantics,
+                built.UnverifiedCount));
     }
 
     /// <summary>
@@ -511,8 +496,18 @@ public sealed class LiveConversationWatcher : IDisposable
                 _ => TranscriptSpeaker.Other,
             },
             message.NormalizedText,
-            message.IsTrustedForSemantics,
-            message.OcrStatus == OcrTextStatus.NoText);
+            HasReadableText(message),
+            message.OcrStatus == OcrTextStatus.NoText,
+            IsVerified: message.IsTrustedForSemantics);
+
+    /// <summary>
+    /// Text is usable for a judgment when OCR produced some, verified or not. Leaving
+    /// unverified readings out made most of a real screen disappear (the checker engine
+    /// is the weaker one); showing the text that was judged lets the user see a misread.
+    /// </summary>
+    private static bool HasReadableText(ObservedMessage message) =>
+        message.OcrStatus is OcrTextStatus.Recognized or OcrTextStatus.LowConfidence &&
+        !string.IsNullOrWhiteSpace(message.NormalizedText);
 
     private void Report(string message) =>
         StatusChanged?.Invoke(this, new LiveStatusEventArgs(message));
@@ -523,7 +518,6 @@ public sealed class LiveConversationWatcher : IDisposable
         _observer.ConversationChanged -= OnConversationChanged;
         _cancellation?.Cancel();
         _cancellation?.Dispose();
-        _tesseractRaw.Dispose();
-        _tesseractUpscaled.Dispose();
+        _ocr.Dispose();
     }
 }

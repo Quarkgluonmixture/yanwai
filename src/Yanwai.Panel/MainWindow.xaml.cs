@@ -82,17 +82,17 @@ public partial class MainWindow : Window
             return;
         }
 
-        var tessdata = LiveConversationWatcher.FindTessdata();
-        if (tessdata is null)
+        var ocrModel = LiveConversationWatcher.FindOcrModel();
+        if (ocrModel is null)
         {
-            StatusText.Text = "找不到 .ocr-cache\\tessdata。先跑 scripts\\install-ocr-models.ps1。";
+            StatusText.Text = "找不到 PP-OCR 模型（.ocr-cache\\paddle）。先跑 scripts\\install-ocr-models.ps1。";
             LiveToggle.IsChecked = false;
             return;
         }
 
         try
         {
-            _watcher = new LiveConversationWatcher(tessdata);
+            _watcher = new LiveConversationWatcher(ocrModel);
         }
         catch (Exception ex)
         {
@@ -261,7 +261,13 @@ public partial class MainWindow : Window
                 }
 
                 var judged = JudgedMessage.From(
-                    item.MessageId, input.TargetMessage, questions, result, item.SkippedUntrusted);
+                    item.MessageId,
+                    input.TargetMessage,
+                    questions,
+                    result,
+                    item.SkippedUntrusted,
+                    item.TargetVerified,
+                    item.UnverifiedInContext);
                 _judged[judged.Id] = judged;
                 _board.Set(judged.Id, judged.OverlayCard(), judged.Chip());
 
@@ -406,7 +412,17 @@ public partial class MainWindow : Window
         if (judged.SkippedUntrusted > 0)
         {
             // The judgment ran on less context than the screen shows.
-            status += $" · {judged.SkippedUntrusted} 条因 OCR 不可信未进上下文";
+            status += $" · {judged.SkippedUntrusted} 条没读出文字未进上下文";
+        }
+
+        if (!judged.TextVerified)
+        {
+            status += " · 这条 OCR 未核实";
+        }
+
+        if (judged.UnverifiedInContext > 0)
+        {
+            status += $" · 上下文里 {judged.UnverifiedInContext} 条 OCR 未核实";
         }
 
         return status;

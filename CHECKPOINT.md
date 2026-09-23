@@ -27,7 +27,10 @@ Fork 自 `Wionerlol/wechat-jev-hud`，`upstream` remote 只读。
 ```
 
 判定要 `TYPESAFE_API_KEY`（用户级环境变量，已设）。实时模式还要 OCR 模型：
-`.\scripts\install-ocr-models.ps1` → 落在 `.ocr-cache\tessdata\`。
+`.\scripts\install-ocr-models.ps1` → PP-OCRv6 small（ONNX，钉 revision + 校验哈希）落在
+`.ocr-cache\paddle\`；Tesseract 模型只剩 `--ocr-evaluate` 在用。
+
+OCR 在真屏幕上的表现（不打印原文）：`src\Yanwai.Diagnostics\bin\...\Yanwai.Diagnostics.exe --ocr-compare-live`。
 
 诊断：
 

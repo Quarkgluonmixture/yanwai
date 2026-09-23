@@ -11,6 +11,27 @@ public sealed class TranscriptBuilderTests
     private static TranscriptTurn Self(string id, string text, bool trusted = true) =>
         new(id, TranscriptSpeaker.Self, text, trusted);
 
+    /// <summary>
+    /// Unverified OCR is usable text: dropping it emptied most of a real screen. It stays
+    /// in the context and is counted, so the panel can say how much of it was unverified.
+    /// </summary>
+    [Fact]
+    public void UnverifiedTurnsStayInTheContextAndAreCounted()
+    {
+        var turns = new[]
+        {
+            new TranscriptTurn("m1", TranscriptSpeaker.Self, "等一下", IsTrusted: true, IsVerified: false),
+            new TranscriptTurn("m2", TranscriptSpeaker.Remote, "你最好是", IsTrusted: true, IsVerified: false),
+        };
+
+        var result = TranscriptBuilder.Build(turns, "m2", 12);
+
+        Assert.NotNull(result);
+        Assert.Equal("我: 等一下\n对方: 你最好是", result!.Transcript);
+        Assert.Equal(2, result.UnverifiedCount);
+        Assert.Equal(0, result.SkippedUntrusted);
+    }
+
     [Fact]
     public void TurnsAfterTheTargetAreDropped()
     {

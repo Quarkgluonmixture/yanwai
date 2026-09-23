@@ -7,8 +7,9 @@
 
 - [ ] **真机验证批注卡片**：真实微信里气泡下方很少有空位，大多会落在右侧——看右侧卡片挡不挡
       自己发的长消息、退成小标签的频率高不高。`--overlay-demo` 改走 board 后也没在真机重看过。
-- [ ] **短消息 OCR**：三四个字的消息 Tesseract 常给 LowConfidence，被整条跳过。
-      Phase 3 实测 Windows OCR 在短中文上最强但没有置信度 ⇒ 这是接 WeChatOCR 或换 Paddle 的主要理由。
+- [ ] **更好的核对引擎**。现在的瓶颈是 Windows OCR（核对方）：真屏幕上 4 条里 2 条核不上，差的是汉字不是标点。
+      候选：同一模型换预处理做第二读（不独立）、PP-OCRv6 medium（Phase 3 说没更准，但可当第二意见）、WeChatOCR（私有协议 ⛔ 先问）。
+      用 `--ocr-compare-live` 量，**别凭印象**。
 - [ ] **真机验证 fallback 防护**。只在 `PrintWindow` 失败时触发，本机从没退化过，没法主动造。
       代码路径：第一帧 fallback 丢弃并隐藏浮层，之后 fallback 帧照常观察但浮层不显示。
 - [ ] **debug 展开视图**：耗时、detection score、OCR 置信度、Jev 概率四类数各自分开显示。
@@ -31,6 +32,5 @@
       （见 `docs/GOTCHAS.md` 坑 6，现在只能靠人记得）。
 - [ ] `Yanwai.Diagnostics` 的 `File.ReadAllTextAsync` / `WriteAllTextAsync` 没写显式编码。
       .NET 默认就是 UTF-8 无 BOM，功能上没问题，但按编码边界的规矩应该写死。
-- [ ] 考虑接微信自带的 `WeChatOCR` 进程替代 Tesseract——本机一直跑着，中文准确率应该更高。
 - [ ] 决定 `C:\Workspace\wechat-jev-hud`（改名前的浅克隆）留不留。里面的 5 个 commit
       已经完整搬到本仓库，浅克隆本身没有额外价值。
