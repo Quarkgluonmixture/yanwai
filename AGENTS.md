@@ -1,6 +1,6 @@
 # AGENTS.md — 言外 / Yanwai
 
-This repository is a Windows desktop companion/overlay project for WeChat.
+This repository explores Jev fast semantic judgments; the Windows WeChat companion/overlay is its first experimental carrier, not the permanent product endpoint. Direction is in `docs/VISION.md`; existing V0 gates and privacy constraints remain in force.
 Forked from `Wionerlol/wechat-jev-hud`; `upstream` is configured read-only.
 
 **Read `docs/GOTCHAS.md` before touching code.** It is the live hazard list, not a
