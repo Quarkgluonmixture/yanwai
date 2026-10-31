@@ -1,6 +1,8 @@
 # 言外 / Yanwai
 
-盯住桌面微信的会话窗口，对方每来一条消息就用 TypeSafe Jev 判定几个窄问题
+探索 TypeSafe Jev 的快速、结构化语义判断能力、效果与局限；微信 HUD 是首个实验载体，
+长期方向见 [docs/VISION.md](docs/VISION.md)。当前实验盯住桌面微信的会话窗口，
+对方每来一条消息就用 TypeSafe Jev 判定几个窄问题
 （话里有话吗 / 她要什么 / 现在该怎么回 / 危险等级），结果显示在面板里，
 并把一张折叠卡片贴在那条气泡旁边。
 
@@ -13,7 +15,7 @@
 
 **入口：`CHECKPOINT.md`。动手前先读 `docs/GOTCHAS.md`。**
 
-Phase 6 后半（滚动重对齐、捕获污染防护、debug 展开视图）尚未实现，见 `TODO.md`。
+当前现场与未核验项见 `CHECKPOINT.md`，阶段验收只以 `docs/ACCEPTANCE.md` 为准，未完工作见 `TODO.md`。下面保留早期诊断与各阶段命令，不作为另一份进度表。
 
 ## What is available
 
@@ -148,11 +150,11 @@ From WSL, invoke the same Windows scripts through interop, for example:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w scripts/diagnose.ps1)" -Capture
 ```
 
-## Secrets and later phases
+## Secrets and Jev integration
 
-No TypeSafe/Jev code runs through Phase 4. The official TypeSafe skill is installed at `.agents/skills/typesafe-ai/`. Before Phase 5 implementation, the live-docs gate in `docs/ACCEPTANCE.md` still applies.
+The Phase 1–4 diagnostic pipeline can run without Jev. Jev integration and its acceptance evidence are recorded in `docs/ACCEPTANCE.md`; re-read live TypeSafe documentation before changing that integration, as required by `AGENTS.md`.
 
-When Jev is implemented later, keep the key outside the repository, for example in the current Windows user's environment:
+Keep the key outside the repository, for example in the current Windows user's environment:
 
 ```powershell
 $env:TYPESAFE_API_KEY = "<local value>"

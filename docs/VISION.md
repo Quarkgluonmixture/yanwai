@@ -2,15 +2,20 @@
 
 ## Why this project exists
 
-The project explores a very specific use of TypeSafe's Jev model: make fast, typed semantic judgments over a live human conversation and surface those judgments directly beside the conversation as a lightweight visual HUD.
+The project explores TypeSafe's Jev as a fast, structured semantic judgment model in real conversation settings.
+
+**Owner decision, 2026-10-31:** “探索 Jev 快速语义模型，微信 HUD 为实验载体”。
+The model's judgment quality, speed and limitations are the long-term question. The WeChat HUD is the first
+concrete experimental carrier, not an irreplaceable product endpoint. Specific judgment dimensions, comparison
+baselines and success thresholds still need to be defined in the relevant experiment; none are claimed accepted here.
 
 The user wants to "play with" Jev as a very fast general-purpose classifier/judgment model in a real application rather than as an isolated API demo.
 
 The target experience is a companion layer floating beside the Windows desktop WeChat chat window. When the other person sends a message, the system quickly detects it, understands the recent context, asks Jev a small set of focused questions, and shows probabilistic judgments beside that message.
 
-## Product vision
+## First experimental carrier
 
-The product should feel like:
+The WeChat experiment should feel like:
 
 > A real-time conversation intelligence HUD attached to WeChat.
 
